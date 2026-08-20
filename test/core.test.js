@@ -3,11 +3,16 @@ const assert = require("node:assert/strict");
 
 const {
   MAX_WORDS_PER_UNIT,
+  MAX_GRAPHEMES_PER_UNIT,
   segmentText,
   splitStructuralSpans,
   findPreviousSentenceStart,
   findActiveHeadingIndex,
 } = require("../core.js");
+
+function graphemeCount(text, locale = "ja") {
+  return [...new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(text)].length;
+}
 
 test("segmentText preserves the selected source text and offsets", () => {
   const source = "Redisを利用して排他制御を実現する場合（ただし、一部は別処理です）。";
@@ -28,20 +33,30 @@ test("segmentText prefers Japanese phrase boundaries", () => {
   );
 });
 
-test("Japanese corner brackets stay together as a quote unit", () => {
-  const units = segmentText("「アドバイザリロック」と呼ばれる仕組みを利用する。");
-
-  assert.equal(units[0].text, "「アドバイザリロック」");
-  assert.equal(units[0].kind, "quote");
-});
-
-test("a quote remains one unit even when it contains sentence punctuation", () => {
-  const source = "「これは重要です。必ず確認してください」と説明する。";
+test("every RSVP unit is capped to avoid line wrapping", () => {
+  assert.equal(MAX_GRAPHEMES_PER_UNIT, 12);
+  const source = "非常に長い技術文章のまとまりをそのまま表示して改行が起きないようにする。";
   const units = segmentText(source);
 
-  assert.equal(units[0].text, "「これは重要です。必ず確認してください」");
-  assert.equal(units[0].kind, "quote");
+  assert.ok(units.every((unit) => graphemeCount(unit.text) <= MAX_GRAPHEMES_PER_UNIT));
   assert.equal(units.map((unit) => unit.text).join(""), source);
+});
+
+test("long Japanese corner-bracket quotes are split without losing quote styling", () => {
+  const source = "「これはとても長い引用なので一度では表示せず注視点を固定したまま分割する」";
+  const units = segmentText(source);
+
+  assert.ok(units.length > 1);
+  assert.ok(units.every((unit) => unit.kind === "quote"));
+  assert.ok(units.every((unit) => graphemeCount(unit.text) <= MAX_GRAPHEMES_PER_UNIT));
+  assert.equal(units.map((unit) => unit.text).join(""), source);
+});
+
+test("short Japanese corner brackets stay together as a quote unit", () => {
+  const units = segmentText("「排他制御」と呼ぶ。");
+
+  assert.equal(units[0].text, "「排他制御」");
+  assert.equal(units[0].kind, "quote");
 });
 
 test("parenthetical text is marked as aside", () => {

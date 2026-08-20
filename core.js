@@ -8,6 +8,7 @@
   root.RsvpCore = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function createRsvpCore() {
   const MAX_WORDS_PER_UNIT = 7;
+  const MAX_GRAPHEMES_PER_UNIT = 12;
   const MIN_WORDS_BEFORE_BOUNDARY = 3;
   const SOFT_BOUNDARY_WORDS = new Set([
     "を",
@@ -164,6 +165,39 @@
     return merged;
   }
 
+  function splitLongUnits(units, locale = "ja", maxGraphemes = MAX_GRAPHEMES_PER_UNIT) {
+    const limit = Math.max(
+      1,
+      Number.isInteger(maxGraphemes) ? maxGraphemes : MAX_GRAPHEMES_PER_UNIT,
+    );
+    const segmenter = new Intl.Segmenter(locale, { granularity: "grapheme" });
+    const result = [];
+
+    for (const unit of units) {
+      const graphemes = [...segmenter.segment(unit.text)];
+      if (graphemes.length <= limit) {
+        result.push({ ...unit });
+        continue;
+      }
+
+      for (let index = 0; index < graphemes.length; index += limit) {
+        const first = graphemes[index];
+        const last = graphemes[Math.min(index + limit, graphemes.length) - 1];
+        const startInUnit = first.index;
+        const endInUnit = last.index + last.segment.length;
+
+        result.push({
+          ...unit,
+          text: unit.text.slice(startInUnit, endInUnit),
+          start: unit.start + startInUnit,
+          end: unit.start + endInUnit,
+        });
+      }
+    }
+
+    return result;
+  }
+
   function segmentText(text, locale = "ja") {
     if (!text) return [];
 
@@ -195,7 +229,7 @@
       sentenceIndex = result.sentenceIndex;
     }
 
-    return mergeDanglingPunctuation(units);
+    return splitLongUnits(mergeDanglingPunctuation(units), locale);
   }
 
   function findPreviousSentenceStart(units, currentUnitIndex) {
@@ -230,7 +264,9 @@
 
   return {
     MAX_WORDS_PER_UNIT,
+    MAX_GRAPHEMES_PER_UNIT,
     segmentText,
+    splitLongUnits,
     splitStructuralSpans,
     findPreviousSentenceStart,
     findActiveHeadingIndex,

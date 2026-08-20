@@ -98,8 +98,6 @@
       position: "fixed",
       inset: "0",
       zIndex: "2147483647",
-      display: "grid",
-      gridTemplateColumns: headings.length > 0 ? "minmax(220px, 300px) minmax(0, 1fr)" : "1fr",
       background: "rgba(12, 12, 14, 0.97)",
       color: "#ffffff",
       fontFamily:
@@ -112,30 +110,42 @@
 
     const main = document.createElement("div");
     Object.assign(main.style, {
-      minWidth: "0",
-      display: "flex",
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: "48px",
-      padding: "32px",
+      position: "absolute",
+      inset: "0",
     });
 
     display = document.createElement("div");
     Object.assign(display.style, {
-      minHeight: "1.4em",
-      maxWidth: "80%",
-      fontSize: "clamp(40px, 6vw, 84px)",
+      position: "absolute",
+      left: "50%",
+      top: "50%",
+      transform: "translate(-50%, -50%)",
+      width: "min(80vw, 960px)",
+      maxWidth: "calc(100% - 64px)",
+      height: "1.35em",
+      boxSizing: "border-box",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "0 12px",
+      borderRadius: "12px",
+      fontSize: "clamp(36px, 4.5vw, 64px)",
       fontWeight: "600",
       lineHeight: "1.35",
       textAlign: "center",
-      whiteSpace: "pre-wrap",
-      overflowWrap: "anywhere",
-      transition: "font-size 120ms ease, opacity 120ms ease",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      overflowWrap: "normal",
+      wordBreak: "keep-all",
+      transition: "color 120ms ease, background-color 120ms ease, opacity 120ms ease",
     });
 
     const controls = document.createElement("div");
     Object.assign(controls.style, {
+      position: "absolute",
+      left: "50%",
+      bottom: "32px",
+      transform: "translateX(-50%)",
       display: "flex",
       alignItems: "center",
       gap: "12px",
@@ -154,11 +164,17 @@
   function createMinimap() {
     const minimap = document.createElement("aside");
     Object.assign(minimap.style, {
-      minWidth: "0",
+      position: "absolute",
+      left: "0",
+      top: "0",
+      bottom: "0",
+      width: "280px",
+      boxSizing: "border-box",
+      zIndex: "1",
       padding: "28px 16px",
       borderRight: "1px solid rgba(255,255,255,0.12)",
       overflowY: "auto",
-      background: "rgba(255,255,255,0.02)",
+      background: "rgba(12,12,14,0.92)",
     });
 
     headingNodes = headings.map((heading) => {
@@ -214,23 +230,19 @@
   function applyUnitStyle(kind) {
     Object.assign(display.style, {
       color: "#ffffff",
-      fontSize: "clamp(40px, 6vw, 84px)",
-      fontWeight: "600",
-      letterSpacing: "normal",
+      backgroundColor: "transparent",
       opacity: "1",
     });
 
     if (kind === "aside") {
       Object.assign(display.style, {
-        fontSize: "clamp(32px, 4.8vw, 68px)",
-        fontWeight: "500",
-        opacity: "0.62",
+        color: "rgba(255,255,255,0.58)",
+        backgroundColor: "rgba(255,255,255,0.025)",
       });
     } else if (kind === "quote") {
       Object.assign(display.style, {
-        fontWeight: "500",
-        letterSpacing: "0.04em",
-        opacity: "0.88",
+        color: "rgba(220,232,255,0.94)",
+        backgroundColor: "rgba(255,255,255,0.04)",
       });
     }
   }
