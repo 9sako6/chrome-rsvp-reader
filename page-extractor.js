@@ -13,7 +13,7 @@
       removePartialSelectors: true,
       removeHiddenElements: true,
       removeLowScoring: true,
-      removeImages: true,
+      removeImages: false,
       standardize: true,
       includeReplies: false,
     }).parse();
@@ -47,6 +47,12 @@
     });
     const headings = headingEntries.map(({ text: headingText, level }) => ({ text: headingText, level }));
     if (includeTitle) headings.unshift({ text: title, level: 1 });
+    const figures = extractReferencedFigures(
+      sourceDocument,
+      contentRoot,
+      text,
+      leadingWhitespaceLength,
+    );
 
     return {
       text,
@@ -54,8 +60,77 @@
         headings,
         sectionTransitions,
         initialHeadingIndex: includeTitle ? 0 : -1,
+        figures,
       },
     };
+  }
+
+  function extractReferencedFigures(sourceDocument, contentRoot, text, leadingWhitespaceLength) {
+    const figures = [];
+    const seenContainers = new Set();
+    for (const image of contentRoot.querySelectorAll("img")) {
+      const container = image.closest?.("figure") || image;
+      if (seenContainers.has(container)) continue;
+      seenContainers.add(container);
+
+      const src = String(image.currentSrc || image.src || image.getAttribute?.("src") || "").trim();
+      if (!src || /^javascript:/i.test(src)) continue;
+
+      const prefixRange = sourceDocument.createRange();
+      prefixRange.selectNodeContents(contentRoot);
+      prefixRange.setEndBefore(container);
+      const figureOffset = Math.min(
+        text.length,
+        Math.max(0, prefixRange.toString().length - leadingWhitespaceLength),
+      );
+      const caption = (container.querySelector?.("figcaption")?.textContent || "").trim();
+      const reference = findFigureReference(text, figureOffset, caption);
+      if (!reference) continue;
+
+      figures.push({
+        src,
+        alt: (image.getAttribute?.("alt") || "").trim(),
+        caption,
+        referenceSentence: reference.sentence,
+        referenceEnd: reference.end,
+      });
+    }
+    return figures.sort((left, right) => left.referenceEnd - right.referenceEnd);
+  }
+
+  function findFigureReference(text, figureOffset, caption) {
+    const prefix = text.slice(0, figureOffset);
+    const captionLabel = caption.match(/(?:図|表)\s*[A-Za-zＡ-Ｚａ-ｚ]?\s*\d+/iu)?.[0] || "";
+    const patterns = [
+      /(?:図|表)\s*[A-Za-zＡ-Ｚａ-ｚ]?\s*\d+/giu,
+      /(?:下|上|次|以下|この)(?:の)?(?:図|表|画像|グラフ)/gu,
+      /(?:この|次の|以下の)(?:グラフ|チャート)/gu,
+    ];
+    if (captionLabel) {
+      const escapedLabel = captionLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      patterns.unshift(new RegExp(escapedLabel, "giu"));
+    }
+
+    let latestMatch = null;
+    for (const pattern of patterns) {
+      for (const match of prefix.matchAll(pattern)) {
+        if (!latestMatch || match.index > latestMatch.index) latestMatch = match;
+      }
+    }
+    if (!latestMatch) return null;
+
+    const beforeMatch = prefix.slice(0, latestMatch.index);
+    const boundaryIndexes = ["。", "！", "？", "!", "?", "\n"].map((mark) => beforeMatch.lastIndexOf(mark));
+    let sentenceStart = Math.max(...boundaryIndexes) + 1;
+    while (/\s/u.test(prefix[sentenceStart] || "")) sentenceStart += 1;
+
+    const afterMatch = prefix.slice(latestMatch.index + latestMatch[0].length);
+    const ending = afterMatch.match(/[。！？.!?][」』）)\]]?/u);
+    const sentenceEnd = ending
+      ? latestMatch.index + latestMatch[0].length + ending.index + ending[0].length
+      : prefix.trimEnd().length;
+    const sentence = prefix.slice(sentenceStart, sentenceEnd).trim();
+    return sentence ? { sentence, end: sentenceEnd } : null;
   }
 
   return { extractPage };

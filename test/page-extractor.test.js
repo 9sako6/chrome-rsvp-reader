@@ -74,11 +74,91 @@ test("extractPage returns article text and heading offsets", () => {
         { offset: 13, headingIndex: 1 },
       ],
       initialHeadingIndex: -1,
+      figures: [],
     },
   });
   assert.equal(defuddleOptions.useAsync, false);
   assert.equal(defuddleOptions.removeExactSelectors, true);
   assert.equal(defuddleOptions.removeLowScoring, true);
+  assert.equal(defuddleOptions.removeImages, false);
+});
+
+test("extractPage keeps only figures referenced by the article text", () => {
+  const caption = { textContent: "図1 処理時間" };
+  const figure = {
+    querySelector(selector) {
+      return selector === "figcaption" ? caption : null;
+    },
+  };
+  const referencedImage = {
+    currentSrc: "https://example.com/chart.png",
+    src: "https://example.com/chart.png",
+    naturalWidth: 1200,
+    naturalHeight: 800,
+    closest() {
+      return figure;
+    },
+    getAttribute(name) {
+      return name === "alt" ? "処理時間の比較グラフ" : null;
+    },
+  };
+  const decorativeImage = {
+    currentSrc: "https://example.com/hero.png",
+    src: "https://example.com/hero.png",
+    naturalWidth: 1600,
+    naturalHeight: 900,
+    closest() {
+      return null;
+    },
+    getAttribute() {
+      return "装飾画像";
+    },
+  };
+  const article = {
+    querySelectorAll(selector) {
+      if (selector === "img") return [referencedImage, decorativeImage];
+      return [];
+    },
+  };
+  const rawText = "この結果を図1に示します。\n図1 処理時間\n次の説明です。";
+  const prefixes = new Map([
+    [figure, "この結果を図1に示します。\n"],
+    [decorativeImage, ""],
+  ]);
+  const document = {
+    createRange() {
+      let endElement = null;
+      return {
+        selectNodeContents() {},
+        setEndBefore(element) {
+          endElement = element;
+        },
+        toString() {
+          return endElement ? prefixes.get(endElement) : rawText;
+        },
+      };
+    },
+    createElement() {
+      return article;
+    },
+  };
+  class FakeDefuddle {
+    parse() {
+      return { content: "<p>この結果を図1に示します。</p><figure></figure><p>次の説明です。</p>" };
+    }
+  }
+
+  const result = extractPage(document, FakeDefuddle);
+
+  assert.deepEqual(result.readingContext.figures, [
+    {
+      src: "https://example.com/chart.png",
+      alt: "処理時間の比較グラフ",
+      caption: "図1 処理時間",
+      referenceSentence: "この結果を図1に示します。",
+      referenceEnd: "この結果を図1に示します。".length,
+    },
+  ]);
 });
 
 test("extractPage returns no content when the page body is unavailable", () => {
