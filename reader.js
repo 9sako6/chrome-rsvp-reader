@@ -494,6 +494,9 @@
     button.textContent = label;
     Object.assign(button.style, {
       appearance: "none",
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
       border: "1px solid transparent",
       borderRadius: "999px",
       padding: "10px 16px",
@@ -503,6 +506,7 @@
       font: "inherit",
       fontSize: "14px",
       fontWeight: "500",
+      textAlign: "center",
       whiteSpace: "nowrap",
       cursor: "pointer",
       backdropFilter: "blur(18px)",

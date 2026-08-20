@@ -206,6 +206,10 @@ test("reader shows the article outline beside the focal point", () => {
   assert.equal(closeButton.style.width, "92px");
   assert.equal(closeButton.style.whiteSpace, "nowrap");
   assert.equal(closeButton.style.boxSizing, "border-box");
+  assert.equal(closeButton.style.display, "inline-flex");
+  assert.equal(closeButton.style.alignItems, "center");
+  assert.equal(closeButton.style.justifyContent, "center");
+  assert.equal(closeButton.style.textAlign, "center");
 
   let prevented = false;
   document.dispatchEvent({
