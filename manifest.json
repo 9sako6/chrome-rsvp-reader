@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "RSVP Reader",
+  "version": "0.1.0",
+  "description": "Read selected text with a minimal RSVP overlay.",
+  "permissions": ["contextMenus", "activeTab", "scripting"],
+  "background": {
+    "service_worker": "service-worker.js"
+  }
+}
