@@ -278,7 +278,7 @@ test("reader shows the article outline beside the focal point", () => {
   assert.match(pageDisplay.textContent, /次の節/);
 });
 
-test("reader inserts a text-only fade break without an instruction label", () => {
+test("reader waits for a sentence boundary before inserting a text-only fade break", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
   assert.doesNotMatch(source, /まばたき/);
 
@@ -336,7 +336,8 @@ test("reader inserts a text-only fade break without an instruction label", () =>
   context.globalThis = context;
   vm.runInNewContext(source, context);
 
-  const text = Array.from({ length: 30 }, (_, index) => `${index + 1}文目です。`).join("");
+  const longSentence = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ");
+  const text = `${longSentence}。次の文です。`;
   messageListener({ type: "PREPARE_RSVP", text, requestId: "blink-request" });
   messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "blink-request" });
 
@@ -351,6 +352,16 @@ test("reader inserts a text-only fade break without an instruction label", () =>
     timer.callback();
   }
 
+  assert.equal(display.style.opacity, "1");
+  let sentenceBoundarySteps = 0;
+  while (display.style.opacity !== "0.12" && sentenceBoundarySteps < 100) {
+    const [timerId, timer] = [...timers.entries()][0];
+    timers.delete(timerId);
+    timer.callback();
+    sentenceBoundarySteps += 1;
+  }
+
+  assert.ok(sentenceBoundarySteps > 0);
   assert.equal(display.style.opacity, "0.12");
   assert.notEqual(display.textContent, "");
   const blinkTimer = [...timers.values()][0];

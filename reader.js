@@ -575,7 +575,9 @@
       }
 
       playbackSinceBlinkMs += INTERVAL_MS;
-      if (playbackSinceBlinkMs >= BLINK_INTERVAL_MS) {
+      const nextUnit = units[currentUnitIndex + 1];
+      const atSentenceBoundary = nextUnit.sentenceIndex !== units[currentUnitIndex].sentenceIndex;
+      if (playbackSinceBlinkMs >= BLINK_INTERVAL_MS && atSentenceBoundary) {
         beginBlinkBreak();
         return;
       }
