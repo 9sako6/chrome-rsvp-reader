@@ -1,10 +1,13 @@
 {
   "manifest_version": 3,
   "name": "RSVP Reader",
-  "version": "0.1.0",
-  "description": "Read selected text with a minimal RSVP overlay.",
+  "version": "0.2.0",
+  "description": "Read selected Japanese text with a fixed-gaze RSVP overlay.",
   "permissions": ["contextMenus", "activeTab", "scripting"],
   "background": {
     "service_worker": "service-worker.js"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }
