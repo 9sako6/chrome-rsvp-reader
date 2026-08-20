@@ -201,6 +201,7 @@ test("reader shows the article outline beside the focal point", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
   assert.doesNotMatch(source, /#0a84ff/i);
   assert.doesNotMatch(source, /let playing|let figureActive/);
+  assert.doesNotMatch(source, /PREPARE_RSVP|preparedText|preparedReadingContext/);
   assert.match(source, /let playbackState = "idle"/);
   for (const match of source.matchAll(/rgba?\((\d+),(\d+),(\d+)/g)) {
     assert.equal(match[1], match[2]);
@@ -209,8 +210,12 @@ test("reader shows the article outline beside the focal point", () => {
   vm.runInNewContext(source, context);
 
   const text = selection.toString();
-  messageListener({ type: "PREPARE_RSVP", text, requestId: "request-1" });
-  messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "request-1" });
+  messageListener({ type: "SHOW_RSVP_LOADING", requestId: "request-1" });
+  const loadingOverlay = document.getElementById("__rsvp-reader-root");
+  assert.ok(findElement(loadingOverlay, (element) => element.textContent === "文章を準備しています…"));
+  messageListener({ type: "START_RSVP", text, requestId: "stale-request" });
+  assert.equal(document.getElementById("__rsvp-reader-root"), loadingOverlay);
+  messageListener({ type: "START_RSVP", text, requestId: "request-1" });
 
   const overlay = document.getElementById("__rsvp-reader-root");
   const minimap = findElement(overlay, (element) => element.tagName === "ASIDE");
@@ -300,13 +305,13 @@ test("reader shows the article outline beside the focal point", () => {
     ],
     initialHeadingIndex: -1,
   };
+  messageListener({ type: "SHOW_RSVP_LOADING", requestId: "request-2" });
   messageListener({
-    type: "PREPARE_RSVP",
+    type: "START_RSVP",
     text,
     requestId: "request-2",
     readingContext: pageReadingContext,
   });
-  messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "request-2" });
 
   const pageOverlay = document.getElementById("__rsvp-reader-root");
   const pageOutline = findElement(
@@ -408,8 +413,8 @@ test("reader varies timing by text length, punctuation, sentence, and section bo
     initialHeadingIndex: -1,
     figures: [],
   };
-  messageListener({ type: "PREPARE_RSVP", text, requestId: "timing-request", readingContext });
-  messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "timing-request" });
+  messageListener({ type: "SHOW_RSVP_LOADING", requestId: "timing-request" });
+  messageListener({ type: "START_RSVP", text, requestId: "timing-request", readingContext });
 
   const overlay = document.getElementById("__rsvp-reader-root");
   const display = findElement(
@@ -515,8 +520,8 @@ test("reader pauses for a referenced figure and resumes with Space", () => {
       },
     ],
   };
-  messageListener({ type: "PREPARE_RSVP", text, requestId: "figure-request", readingContext });
-  messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "figure-request" });
+  messageListener({ type: "SHOW_RSVP_LOADING", requestId: "figure-request" });
+  messageListener({ type: "START_RSVP", text, requestId: "figure-request", readingContext });
 
   const overlay = document.getElementById("__rsvp-reader-root");
   let figurePanel = null;

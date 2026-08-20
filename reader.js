@@ -25,8 +25,6 @@
   let sectionTransitions = [];
   let initialHeadingIndex = -1;
   let activeRequestId = null;
-  let preparedText = null;
-  let preparedReadingContext = null;
   let progressLabel = null;
   let progressBar = null;
   let displayResizeObserver = null;
@@ -37,13 +35,13 @@
   let readerControls = null;
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type === "PREPARE_RSVP" && typeof message.text === "string") {
-      prepare(message.text, message.requestId, message.readingContext);
+    if (message?.type === "SHOW_RSVP_LOADING" && typeof message.requestId === "string") {
+      showLoading(message.requestId);
       return;
     }
 
     if (message?.type === "START_RSVP" && typeof message.text === "string") {
-      start(message.text, message.requestId);
+      start(message.text, message.requestId, message.readingContext);
       return;
     }
 
@@ -52,24 +50,19 @@
     }
   });
 
-  function prepare(text, requestId, readingContext) {
-    stopTimer();
-    removeOverlay();
+  function showLoading(requestId) {
+    close();
     activeRequestId = requestId;
-    preparedText = text;
-    preparedReadingContext = readingContext || collectReadingContext(text);
     createLoadingOverlay();
   }
 
-  function start(text, requestId) {
+  function start(text, requestId, suppliedReadingContext) {
     if (requestId !== activeRequestId) return;
 
     stopTimer();
     removeOverlay();
 
-    const readingContext = preparedText === text && preparedReadingContext
-      ? preparedReadingContext
-      : collectReadingContext(text);
+    const readingContext = suppliedReadingContext || collectReadingContext(text);
     headings = readingContext.headings;
     sectionTransitions = readingContext.sectionTransitions;
     initialHeadingIndex = readingContext.initialHeadingIndex;
@@ -102,7 +95,7 @@
     });
 
     const indicator = document.createElement("div");
-    indicator.textContent = "文章を解析しています…";
+    indicator.textContent = "文章を準備しています…";
     Object.assign(indicator.style, {
       fontSize: "clamp(24px, 3vw, 36px)",
       fontWeight: "600",
@@ -113,7 +106,7 @@
     );
 
     const note = document.createElement("div");
-    note.textContent = "初回は読み込みに時間がかかることがあります";
+    note.textContent = "このページ内だけで処理しています";
     Object.assign(note.style, {
       marginTop: "14px",
       color: "rgba(255,255,255,0.58)",
@@ -585,7 +578,7 @@
 
     const progress = globalThis.RsvpCore.calculateReadingProgress(
       currentEnd,
-      preparedText?.length || 0,
+      units[units.length - 1]?.end || 0,
     );
     if (progressLabel) progressLabel.textContent = `${progress}%`;
     if (progressBar) progressBar.style.width = `${progress}%`;
@@ -890,8 +883,6 @@
     pause();
     removeOverlay();
     activeRequestId = null;
-    preparedText = null;
-    preparedReadingContext = null;
     units = [];
     currentUnitIndex = 0;
     headings = [];

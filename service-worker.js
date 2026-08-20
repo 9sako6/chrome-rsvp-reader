@@ -24,7 +24,9 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.action.onClicked.addListener(async (tab) => {
   if (!tab?.id) return;
 
+  let requestId = null;
   try {
+    requestId = await openReader(tab.id);
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ["vendor/defuddle/defuddle.js", "page-extractor.js"],
@@ -33,43 +35,50 @@ chrome.action.onClicked.addListener(async (tab) => {
       target: { tabId: tab.id },
       func: () => globalThis.RsvpPageExtractor.extractPage(),
     });
-    if (!result?.text) return;
-    await startReader(tab.id, result.text, result.readingContext);
+    if (!result?.text) throw new Error("No readable page content found");
+    await sendReaderContent(tab.id, requestId, result.text, result.readingContext);
   } catch (error) {
     console.error("Failed to read the page with RSVP Reader", error);
+    if (requestId) await showReaderError(tab.id, requestId);
   }
 });
 
 async function startReader(tabId, text, readingContext = null) {
-  const requestId = `${Date.now()}-${requestSequence += 1}`;
-  let readerReady = false;
-
+  let requestId = null;
   try {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["core.js", "reader.js"],
-    });
-    readerReady = true;
-
-    await chrome.tabs.sendMessage(tabId, {
-      type: "PREPARE_RSVP",
-      text,
-      requestId,
-      readingContext,
-    });
-
-    await chrome.tabs.sendMessage(tabId, {
-      type: "START_RSVP",
-      text,
-      requestId,
-    });
+    requestId = await openReader(tabId);
+    await sendReaderContent(tabId, requestId, text, readingContext);
   } catch (error) {
     console.error("Failed to start RSVP Reader", error);
-    if (readerReady) {
-      await chrome.tabs.sendMessage(tabId, {
-        type: "RSVP_ERROR",
-        requestId,
-      }).catch(() => {});
-    }
+    if (requestId) await showReaderError(tabId, requestId);
   }
+}
+
+async function openReader(tabId) {
+  const requestId = `${Date.now()}-${requestSequence += 1}`;
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["core.js", "reader.js"],
+  });
+  await chrome.tabs.sendMessage(tabId, {
+    type: "SHOW_RSVP_LOADING",
+    requestId,
+  });
+  return requestId;
+}
+
+async function sendReaderContent(tabId, requestId, text, readingContext) {
+  await chrome.tabs.sendMessage(tabId, {
+    type: "START_RSVP",
+    text,
+    readingContext,
+    requestId,
+  });
+}
+
+async function showReaderError(tabId, requestId) {
+  await chrome.tabs.sendMessage(tabId, {
+    type: "RSVP_ERROR",
+    requestId,
+  }).catch(() => {});
 }
