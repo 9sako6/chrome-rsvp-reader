@@ -2,12 +2,16 @@
   if (globalThis.__rsvpReaderInstalled) return;
   globalThis.__rsvpReaderInstalled = true;
 
-  const INTERVAL_MS = 300;
-  const BLINK_INTERVAL_MS = 20000;
-  const BLINK_BREAK_MS = 1200;
-  const BLINK_FADE_OPACITY = "0.12";
+  const BASE_UNIT_MS = 180;
+  const MS_PER_GRAPHEME = 24;
+  const MIN_UNIT_MS = 240;
+  const MAX_UNIT_MS = 600;
+  const CLAUSE_PAUSE_MS = 120;
+  const SENTENCE_PAUSE_MS = 360;
+  const SECTION_PAUSE_MS = 240;
   const ROOT_ID = "__rsvp-reader-root";
   const DISPLAY_FONT_SIZE = "clamp(36px, 4.5vw, 64px)";
+  const graphemeSegmenter = new Intl.Segmenter("ja", { granularity: "grapheme" });
 
   let units = [];
   let currentUnitIndex = 0;
@@ -26,9 +30,6 @@
   let progressLabel = null;
   let progressBar = null;
   let displayResizeObserver = null;
-  let blinkIndicator = null;
-  let playbackSinceBlinkMs = 0;
-  let blinkBreakActive = false;
   let figures = [];
   let nextFigureIndex = 0;
   let figurePanel = null;
@@ -84,8 +85,6 @@
     }
 
     currentUnitIndex = 0;
-    playbackSinceBlinkMs = 0;
-    blinkBreakActive = false;
     createOverlay();
     renderCurrentUnit();
     play();
@@ -286,8 +285,6 @@
         : "color 120ms ease, background-color 120ms ease, opacity 240ms ease-out",
     });
 
-    blinkIndicator = createBlinkIndicator();
-
     const controls = document.createElement("div");
     Object.assign(controls.style, {
       position: "absolute",
@@ -317,7 +314,7 @@
     playPauseButton.setAttribute("aria-keyshortcuts", "Space");
 
     controls.append(backButton, playPauseButton, closeButton);
-    main.append(display, blinkIndicator, controls);
+    main.append(display, controls);
     stage.append(main);
     root.append(stage);
     document.addEventListener("keydown", handleKeyDown);
@@ -348,43 +345,6 @@
     `;
     element.append(style);
     return element;
-  }
-
-  function createBlinkIndicator() {
-    const namespace = "http://www.w3.org/2000/svg";
-    const icon = document.createElementNS(namespace, "svg");
-    icon.setAttribute("viewBox", "0 0 44 28");
-    icon.setAttribute("aria-hidden", "true");
-    icon.setAttribute("data-rsvp-blink-indicator", "true");
-    Object.assign(icon.style, {
-      position: "absolute",
-      left: "50%",
-      top: "calc(50% + 62px)",
-      transform: "translate(-50%, -50%) scaleY(1)",
-      transformOrigin: "center",
-      width: "34px",
-      height: "22px",
-      color: "rgba(255,255,255,0.72)",
-      opacity: "0",
-      pointerEvents: "none",
-      transition: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
-        ? "none"
-        : "opacity 220ms ease-out",
-    });
-
-    const outline = document.createElementNS(namespace, "path");
-    outline.setAttribute("d", "M2 14C7.5 6.2 14.3 2.5 22 2.5S36.5 6.2 42 14c-5.5 7.8-12.3 11.5-20 11.5S7.5 21.8 2 14Z");
-    outline.setAttribute("fill", "none");
-    outline.setAttribute("stroke", "currentColor");
-    outline.setAttribute("stroke-width", "1.8");
-
-    const pupil = document.createElementNS(namespace, "circle");
-    pupil.setAttribute("cx", "22");
-    pupil.setAttribute("cy", "14");
-    pupil.setAttribute("r", "4.2");
-    pupil.setAttribute("fill", "currentColor");
-    icon.append(outline, pupil);
-    return icon;
   }
 
   function createMinimap() {
@@ -661,18 +621,35 @@
         return;
       }
 
-      playbackSinceBlinkMs += INTERVAL_MS;
       const nextUnit = units[currentUnitIndex + 1];
-      const atSentenceBoundary = nextUnit.sentenceIndex !== units[currentUnitIndex].sentenceIndex;
-      if (playbackSinceBlinkMs >= BLINK_INTERVAL_MS && atSentenceBoundary) {
-        beginBlinkBreak();
-        return;
-      }
-
       currentUnitIndex += 1;
       renderCurrentUnit();
       scheduleNext();
-    }, INTERVAL_MS);
+    }, displayDuration(units[currentUnitIndex], units[currentUnitIndex + 1]));
+  }
+
+  function displayDuration(unit, nextUnit) {
+    const graphemeCount = [...graphemeSegmenter.segment(unit.text)].length;
+    let duration = Math.min(
+      MAX_UNIT_MS,
+      Math.max(MIN_UNIT_MS, BASE_UNIT_MS + graphemeCount * MS_PER_GRAPHEME),
+    );
+    if (/[、，;；:：]$/u.test(unit.text)) duration += CLAUSE_PAUSE_MS;
+    if (nextUnit?.sentenceIndex !== undefined && nextUnit.sentenceIndex !== unit.sentenceIndex) {
+      duration += SENTENCE_PAUSE_MS;
+    }
+    if (nextUnit && activeHeadingAt(unit.start) !== activeHeadingAt(nextUnit.start)) {
+      duration += SECTION_PAUSE_MS;
+    }
+    return duration;
+  }
+
+  function activeHeadingAt(offset) {
+    return globalThis.RsvpCore.findActiveHeadingIndex(
+      sectionTransitions,
+      offset,
+      initialHeadingIndex,
+    );
   }
 
   function showFigure(figure) {
@@ -680,9 +657,6 @@
     stopTimer();
     playing = false;
     figureActive = true;
-    playbackSinceBlinkMs = 0;
-    blinkBreakActive = false;
-    if (blinkIndicator) blinkIndicator.style.opacity = "0";
     updatePlayPauseButton();
 
     display.style.opacity = "0";
@@ -823,32 +797,6 @@
     if (nextFigureIndex < 0) nextFigureIndex = figures.length;
   }
 
-  function beginBlinkBreak() {
-    if (!display || !blinkIndicator || !playing) return;
-    playbackSinceBlinkMs = 0;
-    blinkBreakActive = true;
-    display.style.opacity = BLINK_FADE_OPACITY;
-    blinkIndicator.style.opacity = "0.56";
-    if (!globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
-      blinkIndicator.animate(
-        [
-          { transform: "translate(-50%, -50%) scaleY(1)" },
-          { transform: "translate(-50%, -50%) scaleY(0.08)", offset: 0.46 },
-          { transform: "translate(-50%, -50%) scaleY(1)" },
-        ],
-        { duration: 900, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
-      );
-    }
-    timerId = globalThis.setTimeout(() => {
-      if (!playing) return;
-      blinkBreakActive = false;
-      blinkIndicator.style.opacity = "0";
-      currentUnitIndex += 1;
-      renderCurrentUnit();
-      scheduleNext();
-    }, BLINK_BREAK_MS);
-  }
-
   function play() {
     if (units.length === 0) return;
     playing = true;
@@ -859,11 +807,6 @@
   function pause() {
     playing = false;
     stopTimer();
-    if (blinkBreakActive) {
-      blinkBreakActive = false;
-      if (blinkIndicator) blinkIndicator.style.opacity = "0";
-      renderCurrentUnit();
-    }
     updatePlayPauseButton();
   }
 
@@ -882,9 +825,6 @@
   function goBackOneSentence() {
     if (units.length === 0) return;
     dismissFigurePanel();
-    blinkBreakActive = false;
-    playbackSinceBlinkMs = 0;
-    if (blinkIndicator) blinkIndicator.style.opacity = "0";
     currentUnitIndex = globalThis.RsvpCore.findPreviousSentenceStart(units, currentUnitIndex);
     syncNextFigureIndex();
     renderCurrentUnit();
@@ -898,9 +838,6 @@
     const targetOffset = transition?.offset ?? 0;
     const targetIndex = units.findIndex((unit) => unit.end > targetOffset);
     stopTimer();
-    blinkBreakActive = false;
-    playbackSinceBlinkMs = 0;
-    if (blinkIndicator) blinkIndicator.style.opacity = "0";
     currentUnitIndex = targetIndex < 0 ? units.length - 1 : targetIndex;
     syncNextFigureIndex();
     renderCurrentUnit();
@@ -944,13 +881,10 @@
     display = null;
     readerMain = null;
     readerControls = null;
-    blinkIndicator = null;
     playPauseButton = null;
     headingNodes = [];
     progressLabel = null;
     progressBar = null;
-    playbackSinceBlinkMs = 0;
-    blinkBreakActive = false;
     figurePanel = null;
     figureActive = false;
   }

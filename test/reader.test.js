@@ -332,9 +332,9 @@ test("reader shows the article outline beside the focal point", () => {
   assert.match(pageDisplay.textContent, /次の節/);
 });
 
-test("reader shows a subtle blinking eye at a lower-frequency sentence break", () => {
+test("reader varies timing by text length, punctuation, sentence, and section boundaries", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
-  assert.doesNotMatch(source, /まばたき/);
+  assert.doesNotMatch(source, /BLINK|blinkIndicator|beginBlinkBreak/);
 
   const documentElement = new FakeElement("html");
   const document = {
@@ -393,49 +393,36 @@ test("reader shows a subtle blinking eye at a lower-frequency sentence break", (
   context.globalThis = context;
   vm.runInNewContext(source, context);
 
-  const longSentence = Array.from({ length: 90 }, (_, index) => `word${index}`).join(" ");
-  const text = `${longSentence}。次の文です。`;
-  messageListener({ type: "PREPARE_RSVP", text, requestId: "blink-request" });
-  messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "blink-request" });
+  const text = "短い、長い文章のまとまりです。次です。";
+  const readingContext = {
+    headings: [
+      { text: "導入", level: 1 },
+      { text: "本論", level: 2 },
+    ],
+    sectionTransitions: [
+      { offset: 0, headingIndex: 0 },
+      { offset: 3, headingIndex: 1 },
+    ],
+    initialHeadingIndex: -1,
+    figures: [],
+  };
+  messageListener({ type: "PREPARE_RSVP", text, requestId: "timing-request", readingContext });
+  messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "timing-request" });
 
   const overlay = document.getElementById("__rsvp-reader-root");
   const display = findElement(
     overlay,
     (element) => element.style.whiteSpace === "nowrap" && element.style.justifyContent === "center",
   );
-  const blinkIndicator = findElement(
-    overlay,
-    (element) => element.attributes["data-rsvp-blink-indicator"] === "true",
-  );
-  assert.ok(blinkIndicator);
-  assert.equal(blinkIndicator.tagName, "SVG");
-  assert.equal(blinkIndicator.style.opacity, "0");
+  assert.equal(display.textContent, "短い、");
+  const [firstTimerId, firstTimer] = [...timers.entries()][0];
+  assert.equal(firstTimer.delay, 612);
+  timers.delete(firstTimerId);
+  firstTimer.callback();
 
-  for (let index = 0; index < 67; index += 1) {
-    const [timerId, timer] = [...timers.entries()][0];
-    timers.delete(timerId);
-    timer.callback();
-  }
-
-  assert.equal(display.style.opacity, "1");
-  let sentenceBoundarySteps = 0;
-  while (display.style.opacity !== "0.12" && sentenceBoundarySteps < 100) {
-    const [timerId, timer] = [...timers.entries()][0];
-    timers.delete(timerId);
-    timer.callback();
-    sentenceBoundarySteps += 1;
-  }
-
-  assert.ok(sentenceBoundarySteps > 0);
-  assert.equal(display.style.opacity, "0.12");
-  assert.equal(blinkIndicator.style.opacity, "0.56");
-  assert.equal(blinkIndicator.animations.at(-1).options.duration, 900);
-  assert.notEqual(display.textContent, "");
-  const blinkTimer = [...timers.values()][0];
-  assert.equal(blinkTimer.delay, 1200);
-  blinkTimer.callback();
-  assert.equal(display.style.opacity, "1");
-  assert.equal(blinkIndicator.style.opacity, "0");
+  assert.equal(display.textContent, "長い文章のまとまりです。");
+  const secondTimer = [...timers.values()][0];
+  assert.equal(secondTimer.delay, 828);
 });
 
 test("reader pauses for a referenced figure and resumes with Space", () => {
