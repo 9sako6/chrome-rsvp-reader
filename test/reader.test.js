@@ -253,8 +253,25 @@ test("reader shows the article outline beside the focal point", () => {
     pageOverlay,
     (element) => element.attributes["aria-label"] === "記事の構成",
   );
+  const pageDisplay = findElement(
+    pageOverlay,
+    (element) => element.style.whiteSpace === "nowrap" && element.style.justifyContent === "center",
+  );
   assert.equal(pageOutline.children[0].textContent, "ページタイトル");
   assert.equal(pageOutline.children[1].style.paddingLeft, "19px");
+  assert.equal(pageOutline.children[1].tagName, "BUTTON");
+
+  const pagePlayPauseButton = findElement(pageOverlay, (element) => element.textContent === "一時停止");
+  document.dispatchEvent({
+    type: "keydown",
+    code: "Space",
+    target: documentElement,
+    preventDefault() {},
+  });
+  pageOutline.children[1].dispatchEvent({ type: "click" });
+  assert.equal(pagePlayPauseButton.textContent, "再生");
+  assert.equal(pageOutline.children[1].attributes["aria-current"], "location");
+  assert.match(pageDisplay.textContent, /次の節/);
 });
 
 test("reader inserts a text-only fade break without an instruction label", () => {

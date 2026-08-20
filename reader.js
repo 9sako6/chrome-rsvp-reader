@@ -327,7 +327,10 @@
       WebkitFontSmoothing: "antialiased",
     });
     const style = document.createElement("style");
-    style.textContent = `#${ROOT_ID} nav::-webkit-scrollbar { display: none; }`;
+    style.textContent = `
+      #${ROOT_ID} nav::-webkit-scrollbar { display: none; }
+      #${ROOT_ID} nav button:focus-visible { outline: 1px solid rgba(255,255,255,0.72); outline-offset: -2px; }
+    `;
     element.append(style);
     return element;
   }
@@ -407,25 +410,34 @@
       msOverflowStyle: "none",
     });
 
-    headingNodes = headings.map((heading) => {
-      const item = document.createElement("div");
+    headingNodes = headings.map((heading, headingIndex) => {
+      const item = document.createElement("button");
+      item.type = "button";
       item.textContent = heading.text;
       item.title = heading.text;
       Object.assign(item.style, {
+        appearance: "none",
+        width: "100%",
         marginBottom: "2px",
         padding: "7px 8px",
         paddingLeft: `${8 + Math.max(0, heading.level - 1) * 11}px`,
+        border: "0",
         borderRadius: "8px",
+        background: "transparent",
         color: "rgba(235,235,235,0.58)",
+        fontFamily: "inherit",
         fontSize: "13px",
         fontWeight: heading.level === 1 ? "600" : "450",
         lineHeight: "1.35",
+        textAlign: "left",
         overflow: "hidden",
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
         boxSizing: "border-box",
+        cursor: "pointer",
         transition: "color 180ms ease, background-color 180ms ease",
       });
+      item.addEventListener("click", () => jumpToHeading(headingIndex));
       outline.append(item);
       return item;
     });
@@ -616,6 +628,19 @@
     blinkBreakActive = false;
     playbackSinceBlinkMs = 0;
     currentUnitIndex = globalThis.RsvpCore.findPreviousSentenceStart(units, currentUnitIndex);
+    renderCurrentUnit();
+    if (playing) scheduleNext();
+  }
+
+  function jumpToHeading(headingIndex) {
+    if (units.length === 0) return;
+    const transition = sectionTransitions.find((entry) => entry.headingIndex === headingIndex);
+    const targetOffset = transition?.offset ?? 0;
+    const targetIndex = units.findIndex((unit) => unit.end > targetOffset);
+    stopTimer();
+    blinkBreakActive = false;
+    playbackSinceBlinkMs = 0;
+    currentUnitIndex = targetIndex < 0 ? units.length - 1 : targetIndex;
     renderCurrentUnit();
     if (playing) scheduleNext();
   }
