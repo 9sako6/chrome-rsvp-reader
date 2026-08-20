@@ -9,12 +9,14 @@ function read(relativePath) {
   return fs.readFileSync(path.join(projectRoot, relativePath), "utf8");
 }
 
-test("project license metadata identifies the copyright holder", () => {
+test("project keeps the canonical Apache license and identifies the copyright holder in NOTICE", () => {
   const license = read("LICENSE");
+  const notice = read("NOTICE");
   const packageMetadata = JSON.parse(read("package.json"));
 
-  assert.doesNotMatch(license, /\[yyyy\]|\[name of copyright owner\]/);
-  assert.match(license, /Copyright 2026 Yutaro Taira/);
+  assert.match(license, /Copyright \[yyyy\] \[name of copyright owner\]/);
+  assert.doesNotMatch(license, /Copyright 2026 Yutaro Taira/);
+  assert.equal(notice.trim(), "Copyright 2026 Yutaro Taira (9sako6)");
   assert.equal(packageMetadata.license, "Apache-2.0");
 });
 
