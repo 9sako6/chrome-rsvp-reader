@@ -256,3 +256,84 @@ test("reader shows the article outline beside the focal point", () => {
   assert.equal(pageOutline.children[0].textContent, "ページタイトル");
   assert.equal(pageOutline.children[1].style.paddingLeft, "19px");
 });
+
+test("reader inserts a text-only fade break without an instruction label", () => {
+  const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
+  assert.doesNotMatch(source, /まばたき/);
+
+  const documentElement = new FakeElement("html");
+  const document = {
+    documentElement,
+    createElement(tagName) {
+      return new FakeElement(tagName);
+    },
+    getElementById(id) {
+      return findElement(documentElement, (element) => element.id === id);
+    },
+    querySelectorAll() {
+      return [];
+    },
+    addEventListener() {},
+    removeEventListener() {},
+  };
+  let messageListener = null;
+  let nextTimerId = 1;
+  const timers = new Map();
+  const context = {
+    chrome: {
+      runtime: {
+        onMessage: {
+          addListener(listener) {
+            messageListener = listener;
+          },
+        },
+      },
+    },
+    document,
+    getSelection() {
+      return { rangeCount: 0, isCollapsed: true };
+    },
+    matchMedia() {
+      return { matches: false };
+    },
+    getComputedStyle() {
+      return { fontSize: "64px" };
+    },
+    RsvpCore,
+    Intl,
+    console,
+    setTimeout(callback, delay) {
+      const id = nextTimerId;
+      nextTimerId += 1;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeout(id) {
+      timers.delete(id);
+    },
+  };
+  context.globalThis = context;
+  vm.runInNewContext(source, context);
+
+  const text = Array.from({ length: 30 }, (_, index) => `${index + 1}文目です。`).join("");
+  messageListener({ type: "PREPARE_RSVP", text, requestId: "blink-request" });
+  messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "blink-request" });
+
+  const overlay = document.getElementById("__rsvp-reader-root");
+  const display = findElement(
+    overlay,
+    (element) => element.style.whiteSpace === "nowrap" && element.style.justifyContent === "center",
+  );
+  for (let index = 0; index < 25; index += 1) {
+    const [timerId, timer] = [...timers.entries()][0];
+    timers.delete(timerId);
+    timer.callback();
+  }
+
+  assert.equal(display.style.opacity, "0.12");
+  assert.notEqual(display.textContent, "");
+  const blinkTimer = [...timers.values()][0];
+  assert.equal(blinkTimer.delay, 850);
+  blinkTimer.callback();
+  assert.equal(display.style.opacity, "1");
+});

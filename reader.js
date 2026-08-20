@@ -3,6 +3,9 @@
   globalThis.__rsvpReaderInstalled = true;
 
   const INTERVAL_MS = 300;
+  const BLINK_INTERVAL_MS = 7500;
+  const BLINK_BREAK_MS = 850;
+  const BLINK_FADE_OPACITY = "0.12";
   const ROOT_ID = "__rsvp-reader-root";
   const DISPLAY_FONT_SIZE = "clamp(36px, 4.5vw, 64px)";
 
@@ -23,6 +26,8 @@
   let progressLabel = null;
   let progressBar = null;
   let displayResizeObserver = null;
+  let playbackSinceBlinkMs = 0;
+  let blinkBreakActive = false;
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "PREPARE_RSVP" && typeof message.text === "string") {
@@ -69,6 +74,8 @@
     }
 
     currentUnitIndex = 0;
+    playbackSinceBlinkMs = 0;
+    blinkBreakActive = false;
     createOverlay();
     renderCurrentUnit();
     play();
@@ -262,7 +269,9 @@
       overflow: "hidden",
       overflowWrap: "normal",
       wordBreak: "keep-all",
-      transition: "color 120ms ease, background-color 120ms ease, opacity 120ms ease",
+      transition: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+        ? "none"
+        : "color 120ms ease, background-color 120ms ease, opacity 240ms ease-out",
     });
 
     const controls = document.createElement("div");
@@ -551,10 +560,30 @@
         return;
       }
 
+      playbackSinceBlinkMs += INTERVAL_MS;
+      if (playbackSinceBlinkMs >= BLINK_INTERVAL_MS) {
+        beginBlinkBreak();
+        return;
+      }
+
       currentUnitIndex += 1;
       renderCurrentUnit();
       scheduleNext();
     }, INTERVAL_MS);
+  }
+
+  function beginBlinkBreak() {
+    if (!display || !playing) return;
+    playbackSinceBlinkMs = 0;
+    blinkBreakActive = true;
+    display.style.opacity = BLINK_FADE_OPACITY;
+    timerId = globalThis.setTimeout(() => {
+      if (!playing) return;
+      blinkBreakActive = false;
+      currentUnitIndex += 1;
+      renderCurrentUnit();
+      scheduleNext();
+    }, BLINK_BREAK_MS);
   }
 
   function play() {
@@ -567,6 +596,10 @@
   function pause() {
     playing = false;
     stopTimer();
+    if (blinkBreakActive) {
+      blinkBreakActive = false;
+      renderCurrentUnit();
+    }
     updatePlayPauseButton();
   }
 
@@ -580,6 +613,8 @@
 
   function goBackOneSentence() {
     if (units.length === 0) return;
+    blinkBreakActive = false;
+    playbackSinceBlinkMs = 0;
     currentUnitIndex = globalThis.RsvpCore.findPreviousSentenceStart(units, currentUnitIndex);
     renderCurrentUnit();
     if (playing) scheduleNext();
@@ -624,6 +659,8 @@
     headingNodes = [];
     progressLabel = null;
     progressBar = null;
+    playbackSinceBlinkMs = 0;
+    blinkBreakActive = false;
   }
 
   function close() {
