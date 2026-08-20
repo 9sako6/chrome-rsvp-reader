@@ -562,28 +562,37 @@
     if (!display) return;
 
     display.style.fontSize = DISPLAY_FONT_SIZE;
-    const availableWidth = Math.max(0, display.clientWidth - 24);
-    const requiredWidth = measureDisplayTextWidth();
-    if (availableWidth <= 0 || requiredWidth <= availableWidth) return;
-
-    const computedFontSize = Number.parseFloat(globalThis.getComputedStyle?.(display).fontSize);
-    if (!Number.isFinite(computedFontSize) || computedFontSize <= 0) return;
-    display.style.fontSize = `${computedFontSize * (availableWidth / requiredWidth) * 0.96}px`;
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const computedStyle = globalThis.getComputedStyle?.(display);
+      const fontSize = Number.parseFloat(computedStyle?.fontSize);
+      const leftPadding = Number.parseFloat(computedStyle?.paddingLeft) || 0;
+      const rightPadding = Number.parseFloat(computedStyle?.paddingRight) || 0;
+      const horizontalPadding = leftPadding + rightPadding;
+      const availableWidth = Math.max(0, display.clientWidth - horizontalPadding);
+      const requiredWidth = measureDisplayTextWidth(horizontalPadding);
+      if (availableWidth <= 0 || requiredWidth <= availableWidth) return;
+      if (!Number.isFinite(fontSize) || fontSize <= 0 || !Number.isFinite(requiredWidth)) return;
+      display.style.fontSize = `${fontSize * (availableWidth / requiredWidth) * 0.96}px`;
+    }
   }
 
-  function measureDisplayTextWidth() {
+  function measureDisplayTextWidth(horizontalPadding) {
     let range = null;
+    const alignment = display.style.justifyContent;
     try {
+      display.style.justifyContent = "flex-start";
       range = document.createRange?.();
       range?.selectNodeContents(display);
       const rangeWidth = range?.getBoundingClientRect().width;
-      if (Number.isFinite(rangeWidth)) return Math.max(display.scrollWidth, rangeWidth);
+      const overflowWidth = Math.max(0, display.scrollWidth - horizontalPadding);
+      if (Number.isFinite(rangeWidth)) return Math.max(overflowWidth, rangeWidth);
+      return overflowWidth;
     } catch {
-      return display.scrollWidth;
+      return Math.max(0, display.scrollWidth - horizontalPadding);
     } finally {
+      display.style.justifyContent = alignment;
       range?.detach?.();
     }
-    return display.scrollWidth;
   }
 
   function applyUnitStyle(kind) {

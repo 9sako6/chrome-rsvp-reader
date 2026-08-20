@@ -14,7 +14,7 @@ class FakeElement {
     this.children = [];
     this.parent = null;
     this.clientWidth = 500;
-    this.scrollWidth = 800;
+    this.scrollWidth = 500;
     this.listeners = new Map();
     this.animations = [];
   }
@@ -71,6 +71,9 @@ test("reader shows the article outline beside the focal point", () => {
   const headingInSelection = new FakeElement("h2", "次の節");
   const documentElement = new FakeElement("html");
   const documentListeners = new Map();
+  let rangeMeasurementCount = 0;
+  let measuredRangeElement = null;
+  let resizeCallback = null;
   const document = {
     documentElement,
     createElement(tagName) {
@@ -81,9 +84,19 @@ test("reader shows the article outline beside the focal point", () => {
     },
     createRange() {
       return {
-        selectNodeContents() {},
+        selectNodeContents(element) {
+          measuredRangeElement = element;
+        },
         getBoundingClientRect() {
-          return { width: 1000 };
+          const assignedFontSize = Number.parseFloat(measuredRangeElement.style.fontSize);
+          const fontSize = Number.isFinite(assignedFontSize) ? assignedFontSize : 64;
+          const width = rangeMeasurementCount === 0
+            ? 1000
+            : rangeMeasurementCount === 1
+              ? 520
+              : fontSize * 18.288;
+          rangeMeasurementCount += 1;
+          return { width };
         },
         detach() {},
       };
@@ -154,12 +167,26 @@ test("reader shows the article outline beside the focal point", () => {
     matchMedia() {
       return { matches: false };
     },
-    getComputedStyle() {
-      return { fontSize: "64px" };
+    getComputedStyle(element) {
+      const assignedFontSize = Number.parseFloat(element.style.fontSize);
+      return {
+        fontSize: Number.isFinite(assignedFontSize) ? `${assignedFontSize}px` : "64px",
+        paddingLeft: "12px",
+        paddingRight: "12px",
+      };
     },
     RsvpCore,
     Intl,
     console,
+    ResizeObserver: class {
+      constructor(callback) {
+        resizeCallback = callback;
+      }
+
+      observe() {}
+
+      disconnect() {}
+    },
     setTimeout(callback, delay) {
       const id = nextTimerId;
       nextTimerId += 1;
@@ -205,7 +232,15 @@ test("reader shows the article outline beside the focal point", () => {
   assert.match(source, /::-webkit-scrollbar/);
   assert.ok(activeMarker);
   assert.equal(activeMarker.style.boxShadow, "none");
-  assert.equal(display.style.fontSize, "29.24544px");
+  assert.ok(Number.parseFloat(display.style.fontSize) <= 26);
+  assert.equal(rangeMeasurementCount, 3);
+  assert.equal(display.style.justifyContent, "center");
+
+  display.clientWidth = 300;
+  resizeCallback();
+  assert.ok(Number.parseFloat(display.style.fontSize) <= 15);
+  assert.ok(rangeMeasurementCount >= 5);
+  assert.equal(display.style.justifyContent, "center");
 
   const playPauseButton = findElement(overlay, (element) => element.textContent === "一時停止");
   const backButton = findElement(overlay, (element) => element.textContent === "1文戻る");
