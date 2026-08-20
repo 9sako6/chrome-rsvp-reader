@@ -4,6 +4,8 @@
 
 日本語の技術文章を、原文を変えずに読みやすくすることを目的にしています。
 
+このプロジェクト本体はApache License 2.0で提供します。同梱する第三者ソフトウェアのライセンスは、それぞれの`vendor/`配下に保存しています。
+
 ## 使い方
 
 1. `chrome://extensions` を開く
@@ -43,6 +45,7 @@
 - WASM: `vendor/kagome/kagome-unidic.wasm`
 - ビルド元: `tools/kagome-wasm/`
 - ハッシュ: `vendor/kagome/SHA256SUMS`
+- ライセンス: `vendor/kagome/LICENSES/`
 
 UniDic 辞書を含むため WASM は約 50 MB あります。GitHub Actions で固定バージョンから再現ビルドし、生成物の SHA-256 も保存します。
 
