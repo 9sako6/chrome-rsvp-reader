@@ -297,7 +297,7 @@
     const closeButton = createButton("閉じる", close);
     Object.assign(backButton.style, { width: "92px", flex: "0 0 92px" });
     Object.assign(playPauseButton.style, { width: "92px", flex: "0 0 92px" });
-    Object.assign(closeButton.style, { width: "72px", flex: "0 0 72px" });
+    Object.assign(closeButton.style, { width: "92px", flex: "0 0 92px" });
     backButton.setAttribute("aria-keyshortcuts", "ArrowLeft");
     playPauseButton.setAttribute("aria-keyshortcuts", "Space");
 
@@ -457,11 +457,13 @@
       border: "1px solid transparent",
       borderRadius: "999px",
       padding: "10px 16px",
+      boxSizing: "border-box",
       background: "rgba(118,118,118,0.18)",
       color: "#ffffff",
       font: "inherit",
       fontSize: "14px",
       fontWeight: "500",
+      whiteSpace: "nowrap",
       cursor: "pointer",
       backdropFilter: "blur(18px)",
       WebkitBackdropFilter: "blur(18px)",

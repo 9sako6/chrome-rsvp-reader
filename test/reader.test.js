@@ -194,8 +194,12 @@ test("reader shows the article outline beside the focal point", () => {
 
   const playPauseButton = findElement(overlay, (element) => element.textContent === "一時停止");
   const backButton = findElement(overlay, (element) => element.textContent === "1文戻る");
+  const closeButton = findElement(overlay, (element) => element.textContent === "閉じる");
   assert.equal(playPauseButton.style.width, "92px");
   assert.equal(backButton.style.width, "92px");
+  assert.equal(closeButton.style.width, "92px");
+  assert.equal(closeButton.style.whiteSpace, "nowrap");
+  assert.equal(closeButton.style.boxSizing, "border-box");
 
   let prevented = false;
   document.dispatchEvent({
