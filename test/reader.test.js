@@ -339,7 +339,7 @@ test("reader shows the article outline beside the focal point", () => {
   assert.match(pageDisplay.textContent, /次の節/);
 });
 
-test("reader varies timing by text length, punctuation, sentence, and section boundaries", () => {
+test("reader varies linguistic timing while preserving baseline effective WPM", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
   assert.doesNotMatch(source, /BLINK|blinkIndicator|beginBlinkBreak/);
 
@@ -430,6 +430,52 @@ test("reader varies timing by text length, punctuation, sentence, and section bo
   assert.equal(display.textContent, "長い文章のまとまりです。");
   const secondTimer = [...timers.values()][0];
   assert.equal(secondTimer.delay, 828);
+
+  const baselineText = [
+    "ソフトウェア設計では、変更理由を一つの場所に集めます。",
+    "依存関係を減らすと、修正の影響範囲を予測しやすくなります。",
+    "テストは利用者から見える振る舞いを確かめ、内部実装だけには依存しません。",
+    "文章の区切りでは十分に休止し、短い語句は自然な速さで提示します。",
+    "見出しが変わる場所では、次の内容を理解するための余白を設けます。",
+  ].join("");
+  const baselineContext = {
+    headings: [
+      { text: "設計", level: 1 },
+      { text: "検証", level: 2 },
+    ],
+    sectionTransitions: [
+      { offset: 0, headingIndex: 0 },
+      { offset: baselineText.indexOf("テスト"), headingIndex: 1 },
+    ],
+    initialHeadingIndex: -1,
+    figures: [],
+  };
+  messageListener({ type: "SHOW_RSVP_LOADING", requestId: "baseline-request" });
+  messageListener({
+    type: "START_RSVP",
+    text: baselineText,
+    requestId: "baseline-request",
+    readingContext: baselineContext,
+  });
+
+  let elapsedMs = 0;
+  let scheduledUnitCount = 0;
+  while (timers.size > 0) {
+    const [timerId, timer] = [...timers.entries()][0];
+    timers.delete(timerId);
+    elapsedMs += timer.delay;
+    scheduledUnitCount += 1;
+    timer.callback();
+    assert.ok(scheduledUnitCount < 100);
+  }
+
+  const graphemeCount = [
+    ...new Intl.Segmenter("ja", { granularity: "grapheme" }).segment(baselineText),
+  ].length;
+  const charactersPerMinute = graphemeCount * 60000 / elapsedMs;
+  const equivalentWordsPerMinute = charactersPerMinute / 2.43;
+  assert.ok(charactersPerMinute >= 925 && charactersPerMinute <= 950);
+  assert.ok(equivalentWordsPerMinute >= 380 && equivalentWordsPerMinute <= 395);
 });
 
 test("reader pauses for a referenced figure and resumes with Space", () => {
