@@ -7,61 +7,195 @@
 
   root.RsvpCore = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function createRsvpCore() {
-  const DEFAULT_WORDS_PER_UNIT = 3;
+  const MAX_WORDS_PER_UNIT = 7;
+  const MIN_WORDS_BEFORE_BOUNDARY = 3;
+  const SOFT_BOUNDARY_WORDS = new Set([
+    "を",
+    "に",
+    "へ",
+    "と",
+    "から",
+    "まで",
+    "より",
+    "が",
+    "は",
+    "も",
+    "て",
+    "で",
+    "ので",
+    "のに",
+    "なら",
+    "れば",
+    "けど",
+    "けれど",
+  ]);
+  const PHRASE_BOUNDARY_PUNCTUATION = new Set(["、", "，", ";", "；", ":", "："]);
+  const SENTENCE_END_PUNCTUATION = new Set(["。", "！", "？", "!", "?"]);
+  const QUOTE_PAIRS = new Map([
+    ["「", "」"],
+    ["『", "』"],
+  ]);
+  const ASIDE_PAIRS = new Map([
+    ["（", "）"],
+    ["(", ")"],
+  ]);
 
-  function segmentText(text, locale = "ja", wordsPerUnit = DEFAULT_WORDS_PER_UNIT) {
+  function splitStructuralSpans(text) {
+    const spans = [];
+    let normalStart = 0;
+    let index = 0;
+
+    while (index < text.length) {
+      const opener = text[index];
+      const quoteCloser = QUOTE_PAIRS.get(opener);
+      const asideCloser = ASIDE_PAIRS.get(opener);
+      if (!quoteCloser && !asideCloser) {
+        index += 1;
+        continue;
+      }
+
+      const kind = quoteCloser ? "quote" : "aside";
+      const closer = quoteCloser || asideCloser;
+      let depth = 1;
+      let end = index + 1;
+
+      while (end < text.length) {
+        if (kind === "aside" && text[end] === opener) depth += 1;
+        if (text[end] === closer) {
+          depth -= 1;
+          if (depth === 0) {
+            end += 1;
+            break;
+          }
+        }
+        end += 1;
+      }
+
+      if (depth !== 0) {
+        index += 1;
+        continue;
+      }
+
+      if (normalStart < index) {
+        spans.push({ text: text.slice(normalStart, index), kind: "body", start: normalStart });
+      }
+      spans.push({ text: text.slice(index, end), kind, start: index });
+      index = end;
+      normalStart = end;
+    }
+
+    if (normalStart < text.length) {
+      spans.push({ text: text.slice(normalStart), kind: "body", start: normalStart });
+    }
+
+    return spans;
+  }
+
+  function segmentFlowSpan(text, sentenceIndex, absoluteStart, locale, kind, trackSentenceEnds) {
+    if (!text) return { units: [], sentenceIndex };
+
+    const pieces = [...new Intl.Segmenter(locale, { granularity: "word" }).segment(text)];
+    const units = [];
+    let currentSentenceIndex = sentenceIndex;
+    let unitText = "";
+    let unitStart = absoluteStart;
+    let unitEnd = absoluteStart;
+    let wordLikeCount = 0;
+
+    function flush() {
+      if (!unitText) return;
+      units.push({
+        text: unitText,
+        sentenceIndex: currentSentenceIndex,
+        kind,
+        start: unitStart,
+        end: unitEnd,
+      });
+      unitText = "";
+      wordLikeCount = 0;
+    }
+
+    for (let index = 0; index < pieces.length; index += 1) {
+      const piece = pieces[index];
+      const next = pieces[index + 1];
+
+      if (!unitText) unitStart = absoluteStart + piece.index;
+      unitText += piece.segment;
+      unitEnd = absoluteStart + piece.index + piece.segment.length;
+      if (piece.isWordLike) wordLikeCount += 1;
+
+      const nextIsWordLike = Boolean(next?.isWordLike);
+      const phraseBoundary = PHRASE_BOUNDARY_PUNCTUATION.has(piece.segment);
+      const sentenceBoundary = trackSentenceEnds && SENTENCE_END_PUNCTUATION.has(piece.segment);
+      const grammaticalBoundary =
+        piece.isWordLike &&
+        SOFT_BOUNDARY_WORDS.has(piece.segment) &&
+        wordLikeCount >= MIN_WORDS_BEFORE_BOUNDARY &&
+        nextIsWordLike;
+      const lengthBoundary =
+        piece.isWordLike && wordLikeCount >= MAX_WORDS_PER_UNIT && nextIsWordLike;
+
+      if (phraseBoundary || sentenceBoundary || grammaticalBoundary || lengthBoundary) {
+        flush();
+      }
+
+      if (sentenceBoundary) currentSentenceIndex += 1;
+    }
+
+    flush();
+    return { units, sentenceIndex: currentSentenceIndex };
+  }
+
+  function mergeDanglingPunctuation(units) {
+    const merged = [];
+    for (const unit of units) {
+      if (
+        merged.length > 0 &&
+        unit.sentenceIndex === merged[merged.length - 1].sentenceIndex &&
+        !/[\p{L}\p{N}]/u.test(unit.text)
+      ) {
+        const previous = merged[merged.length - 1];
+        previous.text += unit.text;
+        previous.end = unit.end;
+      } else {
+        merged.push({ ...unit });
+      }
+    }
+    return merged;
+  }
+
+  function segmentText(text, locale = "ja") {
     if (!text) return [];
-
-    const sentenceSegmenter = new Intl.Segmenter(locale, {
-      granularity: "sentence",
-    });
-    const wordSegmenter = new Intl.Segmenter(locale, {
-      granularity: "word",
-    });
-    const maxWords = Math.max(
-      1,
-      Number.isInteger(wordsPerUnit) ? wordsPerUnit : DEFAULT_WORDS_PER_UNIT,
-    );
 
     const units = [];
     let sentenceIndex = 0;
 
-    for (const sentencePart of sentenceSegmenter.segment(text)) {
-      const sentence = sentencePart.segment;
-      const sentenceUnits = [];
-      let unitText = "";
-      let wordLikeCount = 0;
-
-      for (const wordPart of wordSegmenter.segment(sentence)) {
-        const segment = wordPart.segment;
-        if (!segment) continue;
-
-        if (wordPart.isWordLike && wordLikeCount >= maxWords) {
-          sentenceUnits.push(unitText);
-          unitText = "";
-          wordLikeCount = 0;
-        }
-
-        unitText += segment;
-        if (wordPart.isWordLike) {
-          wordLikeCount += 1;
-        }
+    for (const span of splitStructuralSpans(text)) {
+      const absoluteStart = span.start;
+      if (span.kind === "quote") {
+        units.push({
+          text: span.text,
+          sentenceIndex,
+          kind: "quote",
+          start: absoluteStart,
+          end: absoluteStart + span.text.length,
+        });
+        continue;
       }
 
-      if (unitText) {
-        sentenceUnits.push(unitText);
-      }
-
-      for (const unitText of sentenceUnits) {
-        units.push({ text: unitText, sentenceIndex });
-      }
-
-      if (sentenceUnits.length > 0) {
-        sentenceIndex += 1;
-      }
+      const result = segmentFlowSpan(
+        span.text,
+        sentenceIndex,
+        absoluteStart,
+        locale,
+        span.kind,
+        span.kind === "body",
+      );
+      units.push(...result.units);
+      sentenceIndex = result.sentenceIndex;
     }
 
-    return units;
+    return mergeDanglingPunctuation(units);
   }
 
   function findPreviousSentenceStart(units, currentUnitIndex) {
@@ -73,16 +207,32 @@
     );
     const currentSentenceIndex = units[safeIndex].sentenceIndex;
     const targetSentenceIndex = Math.max(0, currentSentenceIndex - 1);
-    const targetIndex = units.findIndex(
-      (unit) => unit.sentenceIndex === targetSentenceIndex,
-    );
+    const targetIndex = units.findIndex((unit) => unit.sentenceIndex === targetSentenceIndex);
 
     return targetIndex === -1 ? 0 : targetIndex;
   }
 
+  function findActiveHeadingIndex(transitions, currentOffset, fallbackIndex = -1) {
+    let activeIndex = fallbackIndex;
+    if (!Array.isArray(transitions)) return activeIndex;
+
+    for (const transition of transitions) {
+      if (
+        Number.isInteger(transition?.offset) &&
+        Number.isInteger(transition?.headingIndex) &&
+        transition.offset <= currentOffset
+      ) {
+        activeIndex = transition.headingIndex;
+      }
+    }
+    return activeIndex;
+  }
+
   return {
-    DEFAULT_WORDS_PER_UNIT,
+    MAX_WORDS_PER_UNIT,
     segmentText,
+    splitStructuralSpans,
     findPreviousSentenceStart,
+    findActiveHeadingIndex,
   };
 });
