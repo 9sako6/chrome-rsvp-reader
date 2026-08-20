@@ -21,6 +21,7 @@
 
     const contentRoot = sourceDocument.createElement("article");
     contentRoot.innerHTML = result.content;
+    contentRoot.querySelector?.("#__rsvp-reader-root")?.remove();
 
     const fullRange = sourceDocument.createRange();
     fullRange.selectNodeContents(contentRoot);

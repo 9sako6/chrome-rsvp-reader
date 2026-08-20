@@ -18,9 +18,18 @@ test("vendored Defuddle bundle exposes its browser constructor", () => {
 
 test("extractPage returns article text and heading offsets", () => {
   let defuddleOptions = null;
+  let readerOverlayRemoved = false;
   const title = { tagName: "H1", textContent: "記事タイトル" };
   const section = { tagName: "H2", textContent: "次の節" };
   const article = {
+    querySelector(selector) {
+      if (selector !== "#__rsvp-reader-root") return null;
+      return {
+        remove() {
+          readerOverlayRemoved = true;
+        },
+      };
+    },
     querySelectorAll() {
       return [title, section];
     },
@@ -81,6 +90,7 @@ test("extractPage returns article text and heading offsets", () => {
   assert.equal(defuddleOptions.removeExactSelectors, true);
   assert.equal(defuddleOptions.removeLowScoring, true);
   assert.equal(defuddleOptions.removeImages, false);
+  assert.equal(readerOverlayRemoved, true);
 });
 
 test("extractPage keeps only figures referenced by the article text", () => {
