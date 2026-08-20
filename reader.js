@@ -15,7 +15,7 @@
 
   let units = [];
   let currentUnitIndex = 0;
-  let playing = false;
+  let playbackState = "idle";
   let timerId = null;
   let root = null;
   let display = null;
@@ -33,7 +33,6 @@
   let figures = [];
   let nextFigureIndex = 0;
   let figurePanel = null;
-  let figureActive = false;
   let readerMain = null;
   let readerControls = null;
 
@@ -76,7 +75,7 @@
     initialHeadingIndex = readingContext.initialHeadingIndex;
     figures = Array.isArray(readingContext.figures) ? readingContext.figures : [];
     nextFigureIndex = 0;
-    figureActive = false;
+    playbackState = "paused";
 
     units = globalThis.RsvpCore.segmentText(text, "ja", morphologyTokens);
     if (units.length === 0) {
@@ -604,10 +603,10 @@
 
   function scheduleNext() {
     stopTimer();
-    if (!playing) return;
+    if (playbackState !== "playing") return;
 
     timerId = globalThis.setTimeout(() => {
-      if (!playing) return;
+      if (playbackState !== "playing") return;
 
       const nextFigure = figures[nextFigureIndex];
       if (nextFigure && nextFigure.referenceEnd <= units[currentUnitIndex].end) {
@@ -655,8 +654,7 @@
   function showFigure(figure) {
     if (!readerMain || !display) return;
     stopTimer();
-    playing = false;
-    figureActive = true;
+    playbackState = "figure";
     updatePlayPauseButton();
 
     display.style.opacity = "0";
@@ -766,7 +764,7 @@
   }
 
   function resumeAfterFigure() {
-    if (!figureActive) return;
+    if (playbackState !== "figure") return;
     dismissFigurePanel();
     if (currentUnitIndex >= units.length - 1) {
       pause();
@@ -778,7 +776,7 @@
   }
 
   function dismissFigurePanel() {
-    figureActive = false;
+    if (playbackState === "figure") playbackState = "paused";
     figurePanel?.remove();
     figurePanel = null;
     if (display) {
@@ -799,23 +797,23 @@
 
   function play() {
     if (units.length === 0) return;
-    playing = true;
+    playbackState = "playing";
     updatePlayPauseButton();
     scheduleNext();
   }
 
   function pause() {
-    playing = false;
+    if (playbackState !== "idle") playbackState = "paused";
     stopTimer();
     updatePlayPauseButton();
   }
 
   function togglePlayPause() {
-    if (figureActive) {
+    if (playbackState === "figure") {
       resumeAfterFigure();
       return;
     }
-    if (playing) {
+    if (playbackState === "playing") {
       pause();
     } else {
       play();
@@ -828,7 +826,7 @@
     currentUnitIndex = globalThis.RsvpCore.findPreviousSentenceStart(units, currentUnitIndex);
     syncNextFigureIndex();
     renderCurrentUnit();
-    if (playing) scheduleNext();
+    if (playbackState === "playing") scheduleNext();
   }
 
   function jumpToHeading(headingIndex) {
@@ -841,12 +839,12 @@
     currentUnitIndex = targetIndex < 0 ? units.length - 1 : targetIndex;
     syncNextFigureIndex();
     renderCurrentUnit();
-    if (playing) scheduleNext();
+    if (playbackState === "playing") scheduleNext();
   }
 
   function updatePlayPauseButton() {
     if (!playPauseButton) return;
-    playPauseButton.textContent = playing ? "一時停止" : "再生";
+    playPauseButton.textContent = playbackState === "playing" ? "一時停止" : "再生";
   }
 
   function handleKeyDown(event) {
@@ -886,7 +884,6 @@
     progressLabel = null;
     progressBar = null;
     figurePanel = null;
-    figureActive = false;
   }
 
   function close() {
@@ -902,5 +899,6 @@
     initialHeadingIndex = -1;
     figures = [];
     nextFigureIndex = 0;
+    playbackState = "idle";
   }
 })();

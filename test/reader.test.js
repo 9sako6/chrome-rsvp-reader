@@ -200,6 +200,8 @@ test("reader shows the article outline beside the focal point", () => {
   context.globalThis = context;
   const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
   assert.doesNotMatch(source, /#0a84ff/i);
+  assert.doesNotMatch(source, /let playing|let figureActive/);
+  assert.match(source, /let playbackState = "idle"/);
   for (const match of source.matchAll(/rgba?\((\d+),(\d+),(\d+)/g)) {
     assert.equal(match[1], match[2]);
     assert.equal(match[2], match[3]);
