@@ -562,13 +562,28 @@
     if (!display) return;
 
     display.style.fontSize = DISPLAY_FONT_SIZE;
-    const availableWidth = display.clientWidth;
-    const requiredWidth = display.scrollWidth;
+    const availableWidth = Math.max(0, display.clientWidth - 24);
+    const requiredWidth = measureDisplayTextWidth();
     if (availableWidth <= 0 || requiredWidth <= availableWidth) return;
 
     const computedFontSize = Number.parseFloat(globalThis.getComputedStyle?.(display).fontSize);
     if (!Number.isFinite(computedFontSize) || computedFontSize <= 0) return;
     display.style.fontSize = `${computedFontSize * (availableWidth / requiredWidth) * 0.96}px`;
+  }
+
+  function measureDisplayTextWidth() {
+    let range = null;
+    try {
+      range = document.createRange?.();
+      range?.selectNodeContents(display);
+      const rangeWidth = range?.getBoundingClientRect().width;
+      if (Number.isFinite(rangeWidth)) return Math.max(display.scrollWidth, rangeWidth);
+    } catch {
+      return display.scrollWidth;
+    } finally {
+      range?.detach?.();
+    }
+    return display.scrollWidth;
   }
 
   function applyUnitStyle(kind) {

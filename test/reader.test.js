@@ -79,6 +79,15 @@ test("reader shows the article outline beside the focal point", () => {
     createElementNS(_namespace, tagName) {
       return new FakeElement(tagName);
     },
+    createRange() {
+      return {
+        selectNodeContents() {},
+        getBoundingClientRect() {
+          return { width: 1000 };
+        },
+        detach() {},
+      };
+    },
     getElementById(id) {
       return findElement(documentElement, (element) => element.id === id);
     },
@@ -196,7 +205,7 @@ test("reader shows the article outline beside the focal point", () => {
   assert.match(source, /::-webkit-scrollbar/);
   assert.ok(activeMarker);
   assert.equal(activeMarker.style.boxShadow, "none");
-  assert.equal(display.style.fontSize, "38.4px");
+  assert.equal(display.style.fontSize, "29.24544px");
 
   const playPauseButton = findElement(overlay, (element) => element.textContent === "一時停止");
   const backButton = findElement(overlay, (element) => element.textContent === "1文戻る");
