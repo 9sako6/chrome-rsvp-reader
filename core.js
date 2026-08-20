@@ -1,100 +1,56 @@
 (function installRsvpCore(root, factory) {
   const api = factory();
-
-  if (typeof module !== "undefined" && module.exports) {
-    module.exports = api;
-  }
-
+  if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.RsvpCore = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function createRsvpCore() {
   const MAX_WORDS_PER_UNIT = 7;
   const MAX_GRAPHEMES_PER_UNIT = 12;
+  const MORPH_TARGET_GRAPHEMES = 9;
+  const MORPH_MIN_STRONG_BOUNDARY = 4;
   const MIN_WORDS_BEFORE_BOUNDARY = 3;
-  const SOFT_BOUNDARY_WORDS = new Set([
-    "を",
-    "に",
-    "へ",
-    "と",
-    "から",
-    "まで",
-    "より",
-    "が",
-    "は",
-    "も",
-    "て",
-    "で",
-    "ので",
-    "のに",
-    "なら",
-    "れば",
-    "けど",
-    "けれど",
-  ]);
-  const PHRASE_BOUNDARY_PUNCTUATION = new Set(["、", "，", ";", "；", ":", "："]);
-  const SENTENCE_END_PUNCTUATION = new Set(["。", "！", "？", "!", "?"]);
-  const QUOTE_PAIRS = new Map([
-    ["「", "」"],
-    ["『", "』"],
-  ]);
-  const ASIDE_PAIRS = new Map([
-    ["（", "）"],
-    ["(", ")"],
-  ]);
+  const SOFT_BOUNDARY_WORDS = new Set(["を","に","へ","と","から","まで","より","が","は","も","て","で","ので","のに","なら","れば","けど","けれど"]);
+  const PHRASE_BOUNDARY_PUNCTUATION = new Set(["、","，",";","；",":","："]);
+  const SENTENCE_END_PUNCTUATION = new Set(["。","！","？","!","?"]);
+  const QUOTE_PAIRS = new Map([["「","」"],["『","』"]]);
+  const ASIDE_PAIRS = new Map([["（","）"],["(",")"]]);
+
+  function graphemeCount(text, locale = "ja") {
+    return [...new Intl.Segmenter(locale, { granularity: "grapheme" }).segment(text)].length;
+  }
 
   function splitStructuralSpans(text) {
     const spans = [];
     let normalStart = 0;
     let index = 0;
-
     while (index < text.length) {
       const opener = text[index];
       const quoteCloser = QUOTE_PAIRS.get(opener);
       const asideCloser = ASIDE_PAIRS.get(opener);
-      if (!quoteCloser && !asideCloser) {
-        index += 1;
-        continue;
-      }
-
+      if (!quoteCloser && !asideCloser) { index += 1; continue; }
       const kind = quoteCloser ? "quote" : "aside";
       const closer = quoteCloser || asideCloser;
       let depth = 1;
       let end = index + 1;
-
       while (end < text.length) {
         if (kind === "aside" && text[end] === opener) depth += 1;
         if (text[end] === closer) {
           depth -= 1;
-          if (depth === 0) {
-            end += 1;
-            break;
-          }
+          if (depth === 0) { end += 1; break; }
         }
         end += 1;
       }
-
-      if (depth !== 0) {
-        index += 1;
-        continue;
-      }
-
-      if (normalStart < index) {
-        spans.push({ text: text.slice(normalStart, index), kind: "body", start: normalStart });
-      }
+      if (depth !== 0) { index += 1; continue; }
+      if (normalStart < index) spans.push({ text: text.slice(normalStart, index), kind: "body", start: normalStart });
       spans.push({ text: text.slice(index, end), kind, start: index });
       index = end;
       normalStart = end;
     }
-
-    if (normalStart < text.length) {
-      spans.push({ text: text.slice(normalStart), kind: "body", start: normalStart });
-    }
-
+    if (normalStart < text.length) spans.push({ text: text.slice(normalStart), kind: "body", start: normalStart });
     return spans;
   }
 
   function segmentFlowSpan(text, sentenceIndex, absoluteStart, locale, kind, trackSentenceEnds) {
     if (!text) return { units: [], sentenceIndex };
-
     const pieces = [...new Intl.Segmenter(locale, { granularity: "word" }).segment(text)];
     const units = [];
     let currentSentenceIndex = sentenceIndex;
@@ -102,45 +58,132 @@
     let unitStart = absoluteStart;
     let unitEnd = absoluteStart;
     let wordLikeCount = 0;
-
     function flush() {
       if (!unitText) return;
-      units.push({
-        text: unitText,
-        sentenceIndex: currentSentenceIndex,
-        kind,
-        start: unitStart,
-        end: unitEnd,
-      });
+      units.push({ text: unitText, sentenceIndex: currentSentenceIndex, kind, start: unitStart, end: unitEnd });
       unitText = "";
       wordLikeCount = 0;
     }
-
     for (let index = 0; index < pieces.length; index += 1) {
       const piece = pieces[index];
       const next = pieces[index + 1];
-
       if (!unitText) unitStart = absoluteStart + piece.index;
       unitText += piece.segment;
       unitEnd = absoluteStart + piece.index + piece.segment.length;
       if (piece.isWordLike) wordLikeCount += 1;
-
       const nextIsWordLike = Boolean(next?.isWordLike);
       const phraseBoundary = PHRASE_BOUNDARY_PUNCTUATION.has(piece.segment);
       const sentenceBoundary = trackSentenceEnds && SENTENCE_END_PUNCTUATION.has(piece.segment);
-      const grammaticalBoundary =
-        piece.isWordLike &&
-        SOFT_BOUNDARY_WORDS.has(piece.segment) &&
-        wordLikeCount >= MIN_WORDS_BEFORE_BOUNDARY &&
-        nextIsWordLike;
-      const lengthBoundary =
-        piece.isWordLike && wordLikeCount >= MAX_WORDS_PER_UNIT && nextIsWordLike;
+      const grammaticalBoundary = piece.isWordLike && SOFT_BOUNDARY_WORDS.has(piece.segment) && wordLikeCount >= MIN_WORDS_BEFORE_BOUNDARY && nextIsWordLike;
+      const lengthBoundary = piece.isWordLike && wordLikeCount >= MAX_WORDS_PER_UNIT && nextIsWordLike;
+      if (phraseBoundary || sentenceBoundary || grammaticalBoundary || lengthBoundary) flush();
+      if (sentenceBoundary) currentSentenceIndex += 1;
+    }
+    flush();
+    return { units, sentenceIndex: currentSentenceIndex };
+  }
 
-      if (phraseBoundary || sentenceBoundary || grammaticalBoundary || lengthBoundary) {
+  function normalizeMorphologyTokens(text, rawTokens) {
+    if (!Array.isArray(rawTokens) || rawTokens.length === 0) return [];
+    const tokens = [];
+    let cursor = 0;
+    for (const rawToken of rawTokens) {
+      const surface = typeof rawToken?.surface === "string" ? rawToken.surface : "";
+      if (!surface) continue;
+      const start = text.indexOf(surface, cursor);
+      if (start < 0) return [];
+      if (start > cursor) tokens.push({ surface: text.slice(cursor, start), pos: [], start: cursor, end: start, gap: true });
+      const pos = Array.isArray(rawToken.pos) ? rawToken.pos : String(rawToken.pos || "").split(",").filter(Boolean);
+      const end = start + surface.length;
+      tokens.push({ surface, pos, start, end, gap: false });
+      cursor = end;
+    }
+    if (cursor < text.length) tokens.push({ surface: text.slice(cursor), pos: [], start: cursor, end: text.length, gap: true });
+    return tokens.map((token) => ({ ...token }));
+  }
+
+  function isStrongMorphBoundary(token) {
+    return Boolean(token && token.pos?.[0] === "助詞" && token.pos?.[1] === "接続助詞");
+  }
+
+  function isSafeMorphBoundary(token) {
+    if (!token || token.gap) return false;
+    return token.pos?.[0] === "助詞" || token.pos?.[0] === "助動詞";
+  }
+
+  function isVerbLike(token) {
+    return token?.pos?.[0] === "動詞" || token?.pos?.[0] === "形容詞";
+  }
+
+  function nextMeaningfulToken(tokens, index) {
+    for (let i = index + 1; i < tokens.length; i += 1) {
+      if (!tokens[i].gap || tokens[i].surface.trim()) return tokens[i];
+    }
+    return null;
+  }
+
+  function segmentMorphologicalSpan(sourceText, span, normalizedTokens, sentenceIndex, locale) {
+    const spanEnd = span.start + span.text.length;
+    const spanTokens = normalizedTokens.filter((token) => token.start >= span.start && token.end <= spanEnd);
+    if (spanTokens.length === 0 || spanTokens[0].start !== span.start || spanTokens[spanTokens.length - 1].end !== spanEnd) {
+      return segmentFlowSpan(span.text, sentenceIndex, span.start, locale, span.kind, span.kind === "body");
+    }
+
+    const units = [];
+    let currentSentenceIndex = sentenceIndex;
+    let buffer = [];
+    let safeBoundaryCount = 0;
+
+    function bufferText(count = buffer.length) {
+      if (count === 0) return "";
+      return sourceText.slice(buffer[0].start, buffer[count - 1].end);
+    }
+
+    function recalcSafeBoundary() {
+      safeBoundaryCount = 0;
+      buffer.forEach((token, index) => { if (isSafeMorphBoundary(token)) safeBoundaryCount = index + 1; });
+    }
+
+    function flush(count = buffer.length) {
+      if (count <= 0 || buffer.length === 0) return;
+      const first = buffer[0];
+      const last = buffer[count - 1];
+      units.push({
+        text: sourceText.slice(first.start, last.end),
+        sentenceIndex: currentSentenceIndex,
+        kind: span.kind,
+        start: first.start,
+        end: last.end,
+      });
+      buffer = buffer.slice(count);
+      recalcSafeBoundary();
+    }
+
+    for (let index = 0; index < spanTokens.length; index += 1) {
+      const token = spanTokens[index];
+      const next = nextMeaningfulToken(spanTokens, index);
+      buffer.push(token);
+
+      const sentenceBoundary = span.kind === "body" && SENTENCE_END_PUNCTUATION.has(token.surface);
+      const punctuationBoundary = PHRASE_BOUNDARY_PUNCTUATION.has(token.surface);
+      if (isSafeMorphBoundary(token)) safeBoundaryCount = buffer.length;
+
+      if (sentenceBoundary || punctuationBoundary) {
         flush();
+        if (sentenceBoundary) currentSentenceIndex += 1;
+        continue;
       }
 
-      if (sentenceBoundary) currentSentenceIndex += 1;
+      const currentLength = graphemeCount(bufferText(), locale);
+      if (isStrongMorphBoundary(token) && currentLength >= MORPH_MIN_STRONG_BOUNDARY) {
+        flush();
+        continue;
+      }
+
+      const deferForFollowingConnector = isVerbLike(token) && isStrongMorphBoundary(next);
+      if (currentLength >= MORPH_TARGET_GRAPHEMES && safeBoundaryCount > 0 && safeBoundaryCount < buffer.length && !deferForFollowingConnector) {
+        flush(safeBoundaryCount);
+      }
     }
 
     flush();
@@ -150,114 +193,66 @@
   function mergeDanglingPunctuation(units) {
     const merged = [];
     for (const unit of units) {
-      if (
-        merged.length > 0 &&
-        unit.sentenceIndex === merged[merged.length - 1].sentenceIndex &&
-        !/[\p{L}\p{N}]/u.test(unit.text)
-      ) {
+      if (merged.length > 0 && unit.sentenceIndex === merged[merged.length - 1].sentenceIndex && !/[\p{L}\p{N}]/u.test(unit.text)) {
         const previous = merged[merged.length - 1];
         previous.text += unit.text;
         previous.end = unit.end;
-      } else {
-        merged.push({ ...unit });
-      }
+      } else merged.push({ ...unit });
     }
     return merged;
   }
 
   function splitLongUnits(units, locale = "ja", maxGraphemes = MAX_GRAPHEMES_PER_UNIT) {
-    const limit = Math.max(
-      1,
-      Number.isInteger(maxGraphemes) ? maxGraphemes : MAX_GRAPHEMES_PER_UNIT,
-    );
+    const limit = Math.max(1, Number.isInteger(maxGraphemes) ? maxGraphemes : MAX_GRAPHEMES_PER_UNIT);
     const segmenter = new Intl.Segmenter(locale, { granularity: "grapheme" });
     const result = [];
-
     for (const unit of units) {
       const graphemes = [...segmenter.segment(unit.text)];
-      if (graphemes.length <= limit) {
-        result.push({ ...unit });
-        continue;
-      }
-
+      if (graphemes.length <= limit) { result.push({ ...unit }); continue; }
       for (let index = 0; index < graphemes.length; index += limit) {
         const first = graphemes[index];
         const last = graphemes[Math.min(index + limit, graphemes.length) - 1];
         const startInUnit = first.index;
         const endInUnit = last.index + last.segment.length;
-
-        result.push({
-          ...unit,
-          text: unit.text.slice(startInUnit, endInUnit),
-          start: unit.start + startInUnit,
-          end: unit.start + endInUnit,
-        });
+        result.push({ ...unit, text: unit.text.slice(startInUnit, endInUnit), start: unit.start + startInUnit, end: unit.start + endInUnit });
       }
     }
-
     return result;
   }
 
-  function segmentText(text, locale = "ja") {
+  function segmentText(text, locale = "ja", morphologyTokens = globalThis.__rsvpMorphologyTokens ?? null) {
     if (!text) return [];
-
+    const normalizedMorphology = normalizeMorphologyTokens(text, morphologyTokens);
     const units = [];
     let sentenceIndex = 0;
-
     for (const span of splitStructuralSpans(text)) {
-      const absoluteStart = span.start;
       if (span.kind === "quote") {
-        units.push({
-          text: span.text,
-          sentenceIndex,
-          kind: "quote",
-          start: absoluteStart,
-          end: absoluteStart + span.text.length,
-        });
+        units.push({ text: span.text, sentenceIndex, kind: "quote", start: span.start, end: span.start + span.text.length });
         continue;
       }
-
-      const result = segmentFlowSpan(
-        span.text,
-        sentenceIndex,
-        absoluteStart,
-        locale,
-        span.kind,
-        span.kind === "body",
-      );
+      const result = normalizedMorphology.length > 0
+        ? segmentMorphologicalSpan(text, span, normalizedMorphology, sentenceIndex, locale)
+        : segmentFlowSpan(span.text, sentenceIndex, span.start, locale, span.kind, span.kind === "body");
       units.push(...result.units);
       sentenceIndex = result.sentenceIndex;
     }
-
     return splitLongUnits(mergeDanglingPunctuation(units), locale);
   }
 
   function findPreviousSentenceStart(units, currentUnitIndex) {
     if (!Array.isArray(units) || units.length === 0) return 0;
-
-    const safeIndex = Math.min(
-      Math.max(Number.isInteger(currentUnitIndex) ? currentUnitIndex : 0, 0),
-      units.length - 1,
-    );
+    const safeIndex = Math.min(Math.max(Number.isInteger(currentUnitIndex) ? currentUnitIndex : 0, 0), units.length - 1);
     const currentSentenceIndex = units[safeIndex].sentenceIndex;
     const targetSentenceIndex = Math.max(0, currentSentenceIndex - 1);
     const targetIndex = units.findIndex((unit) => unit.sentenceIndex === targetSentenceIndex);
-
     return targetIndex === -1 ? 0 : targetIndex;
   }
 
   function findActiveHeadingIndex(transitions, currentOffset, fallbackIndex = -1) {
     let activeIndex = fallbackIndex;
     if (!Array.isArray(transitions)) return activeIndex;
-
     for (const transition of transitions) {
-      if (
-        Number.isInteger(transition?.offset) &&
-        Number.isInteger(transition?.headingIndex) &&
-        transition.offset <= currentOffset
-      ) {
-        activeIndex = transition.headingIndex;
-      }
+      if (Number.isInteger(transition?.offset) && Number.isInteger(transition?.headingIndex) && transition.offset <= currentOffset) activeIndex = transition.headingIndex;
     }
     return activeIndex;
   }
@@ -265,7 +260,9 @@
   return {
     MAX_WORDS_PER_UNIT,
     MAX_GRAPHEMES_PER_UNIT,
+    MORPH_TARGET_GRAPHEMES,
     segmentText,
+    normalizeMorphologyTokens,
     splitLongUnits,
     splitStructuralSpans,
     findPreviousSentenceStart,
