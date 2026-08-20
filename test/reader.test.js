@@ -393,3 +393,143 @@ test("reader shows a subtle blinking eye at a lower-frequency sentence break", (
   assert.equal(display.style.opacity, "1");
   assert.equal(blinkIndicator.style.opacity, "0");
 });
+
+test("reader pauses for a referenced figure and resumes with Space", () => {
+  const documentElement = new FakeElement("html");
+  const documentListeners = new Map();
+  const document = {
+    documentElement,
+    createElement(tagName) {
+      return new FakeElement(tagName);
+    },
+    createElementNS(_namespace, tagName) {
+      return new FakeElement(tagName);
+    },
+    getElementById(id) {
+      return findElement(documentElement, (element) => element.id === id);
+    },
+    querySelectorAll() {
+      return [];
+    },
+    addEventListener(type, listener) {
+      const listeners = documentListeners.get(type) || [];
+      listeners.push(listener);
+      documentListeners.set(type, listeners);
+    },
+    removeEventListener(type, listener) {
+      documentListeners.set(
+        type,
+        (documentListeners.get(type) || []).filter((candidate) => candidate !== listener),
+      );
+    },
+    dispatchEvent(event) {
+      for (const listener of documentListeners.get(event.type) || []) listener(event);
+    },
+  };
+  let messageListener = null;
+  let nextTimerId = 1;
+  const timers = new Map();
+  const context = {
+    chrome: {
+      runtime: {
+        onMessage: {
+          addListener(listener) {
+            messageListener = listener;
+          },
+        },
+      },
+    },
+    document,
+    getSelection() {
+      return { rangeCount: 0, isCollapsed: true };
+    },
+    matchMedia() {
+      return { matches: false };
+    },
+    getComputedStyle() {
+      return { fontSize: "64px" };
+    },
+    RsvpCore,
+    Intl,
+    console,
+    setTimeout(callback, delay) {
+      const id = nextTimerId;
+      nextTimerId += 1;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeout(id) {
+      timers.delete(id);
+    },
+  };
+  context.globalThis = context;
+  const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
+  vm.runInNewContext(source, context);
+
+  const referenceSentence = "結果を図1に示します。";
+  const text = `${referenceSentence}次の説明です。`;
+  const readingContext = {
+    headings: [],
+    sectionTransitions: [],
+    initialHeadingIndex: -1,
+    figures: [
+      {
+        src: "https://example.com/chart.png",
+        alt: "処理時間の比較グラフ",
+        caption: "図1 処理時間",
+        referenceSentence,
+        referenceEnd: referenceSentence.length,
+      },
+    ],
+  };
+  messageListener({ type: "PREPARE_RSVP", text, requestId: "figure-request", readingContext });
+  messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "figure-request" });
+
+  const overlay = document.getElementById("__rsvp-reader-root");
+  let figurePanel = null;
+  for (let step = 0; step < 10 && !figurePanel; step += 1) {
+    const [timerId, timer] = [...timers.entries()][0];
+    timers.delete(timerId);
+    timer.callback();
+    figurePanel = findElement(
+      overlay,
+      (element) => element.attributes["aria-label"] === "参照図表",
+    );
+  }
+  assert.ok(figurePanel);
+  const image = findElement(figurePanel, (element) => element.tagName === "IMG");
+  const veil = findElement(
+    figurePanel,
+    (element) => element.attributes["data-rsvp-image-veil"] === "true",
+  );
+  const imageSurface = findElement(
+    figurePanel,
+    (element) => element.attributes["data-rsvp-image-surface"] === "true",
+  );
+  const continueButton = findElement(figurePanel, (element) => element.textContent === "続きを読む");
+  assert.equal(image.src, "https://example.com/chart.png");
+  assert.equal(image.alt, "処理時間の比較グラフ");
+  assert.ok(findElement(figurePanel, (element) => element.textContent === referenceSentence));
+  assert.ok(findElement(figurePanel, (element) => element.textContent === "図1 処理時間"));
+  assert.ok(continueButton);
+  assert.equal(timers.size, 0);
+  assert.equal(veil.style.opacity, "1");
+  imageSurface.dispatchEvent({ type: "pointerdown" });
+  assert.equal(veil.style.opacity, "0");
+  imageSurface.dispatchEvent({ type: "pointerup" });
+  assert.equal(veil.style.opacity, "1");
+
+  document.dispatchEvent({
+    type: "keydown",
+    code: "Space",
+    target: documentElement,
+    preventDefault() {},
+  });
+  assert.equal(findElement(overlay, (element) => element.attributes["aria-label"] === "参照図表"), null);
+  const display = findElement(
+    overlay,
+    (element) => element.style.whiteSpace === "nowrap" && element.style.justifyContent === "center",
+  );
+  assert.match(display.textContent, /次の説明/);
+  assert.ok(timers.size > 0);
+});

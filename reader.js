@@ -29,6 +29,12 @@
   let blinkIndicator = null;
   let playbackSinceBlinkMs = 0;
   let blinkBreakActive = false;
+  let figures = [];
+  let nextFigureIndex = 0;
+  let figurePanel = null;
+  let figureActive = false;
+  let readerMain = null;
+  let readerControls = null;
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "PREPARE_RSVP" && typeof message.text === "string") {
@@ -67,6 +73,9 @@
     headings = readingContext.headings;
     sectionTransitions = readingContext.sectionTransitions;
     initialHeadingIndex = readingContext.initialHeadingIndex;
+    figures = Array.isArray(readingContext.figures) ? readingContext.figures : [];
+    nextFigureIndex = 0;
+    figureActive = false;
 
     units = globalThis.RsvpCore.segmentText(text, "ja", morphologyTokens);
     if (units.length === 0) {
@@ -164,6 +173,7 @@
       headings: [],
       sectionTransitions: [],
       initialHeadingIndex: -1,
+      figures: [],
     };
 
     const selection = globalThis.getSelection?.();
@@ -246,6 +256,7 @@
       minWidth: "0",
       height: "100%",
     });
+    readerMain = main;
 
     display = document.createElement("div");
     Object.assign(display.style, {
@@ -294,6 +305,7 @@
       backdropFilter: "blur(24px) saturate(140%)",
       WebkitBackdropFilter: "blur(24px) saturate(140%)",
     });
+    readerControls = controls;
 
     const backButton = createButton("1文戻る", goBackOneSentence);
     playPauseButton = createButton("一時停止", togglePlayPause);
@@ -613,6 +625,13 @@
     timerId = globalThis.setTimeout(() => {
       if (!playing) return;
 
+      const nextFigure = figures[nextFigureIndex];
+      if (nextFigure && nextFigure.referenceEnd <= units[currentUnitIndex].end) {
+        nextFigureIndex += 1;
+        showFigure(nextFigure);
+        return;
+      }
+
       if (currentUnitIndex >= units.length - 1) {
         pause();
         return;
@@ -630,6 +649,154 @@
       renderCurrentUnit();
       scheduleNext();
     }, INTERVAL_MS);
+  }
+
+  function showFigure(figure) {
+    if (!readerMain || !display) return;
+    stopTimer();
+    playing = false;
+    figureActive = true;
+    playbackSinceBlinkMs = 0;
+    blinkBreakActive = false;
+    if (blinkIndicator) blinkIndicator.style.opacity = "0";
+    updatePlayPauseButton();
+
+    display.style.opacity = "0";
+    display.style.pointerEvents = "none";
+    if (readerControls) {
+      readerControls.style.opacity = "0";
+      readerControls.style.pointerEvents = "none";
+    }
+
+    figurePanel = document.createElement("section");
+    figurePanel.setAttribute("aria-label", "参照図表");
+    Object.assign(figurePanel.style, {
+      position: "absolute",
+      inset: "0",
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: "12px",
+      padding: "20px 16px 8px",
+      boxSizing: "border-box",
+    });
+
+    const reference = document.createElement("div");
+    reference.textContent = figure.referenceSentence || "本文で参照されている図表";
+    Object.assign(reference.style, {
+      width: "min(720px, 100%)",
+      color: "rgba(255,255,255,0.72)",
+      fontSize: "14px",
+      lineHeight: "1.55",
+      textAlign: "center",
+    });
+
+    const imageSurface = document.createElement("div");
+    imageSurface.setAttribute("data-rsvp-image-surface", "true");
+    Object.assign(imageSurface.style, {
+      position: "relative",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      width: "min(760px, 100%)",
+      minHeight: "0",
+      overflow: "hidden",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: "16px",
+      background: "rgba(28,28,28,0.82)",
+      boxShadow: "0 20px 64px rgba(0,0,0,0.42)",
+      cursor: "pointer",
+      touchAction: "none",
+    });
+
+    const image = document.createElement("img");
+    image.src = figure.src;
+    image.alt = figure.alt || figure.caption || "参照図表";
+    Object.assign(image.style, {
+      display: "block",
+      maxWidth: "100%",
+      maxHeight: "min(54vh, 560px)",
+      objectFit: "contain",
+    });
+
+    const veil = document.createElement("div");
+    veil.setAttribute("data-rsvp-image-veil", "true");
+    Object.assign(veil.style, {
+      position: "absolute",
+      inset: "0",
+      background: "rgba(0,0,0,0.22)",
+      opacity: "1",
+      pointerEvents: "none",
+      transition: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+        ? "none"
+        : "opacity 140ms ease-out",
+    });
+
+    const revealImage = () => {
+      veil.style.opacity = "0";
+    };
+    const dimImage = () => {
+      veil.style.opacity = "1";
+    };
+    imageSurface.addEventListener("pointerdown", revealImage);
+    imageSurface.addEventListener("pointerup", dimImage);
+    imageSurface.addEventListener("pointercancel", dimImage);
+    imageSurface.addEventListener("pointerleave", dimImage);
+    imageSurface.append(image, veil);
+
+    const caption = document.createElement("div");
+    caption.textContent = figure.caption || figure.alt || "";
+    Object.assign(caption.style, {
+      width: "min(720px, 100%)",
+      minHeight: "1.4em",
+      color: "rgba(255,255,255,0.58)",
+      fontSize: "13px",
+      lineHeight: "1.4",
+      textAlign: "center",
+    });
+
+    const continueButton = createButton("続きを読む", resumeAfterFigure);
+    continueButton.setAttribute("aria-keyshortcuts", "Space");
+    Object.assign(continueButton.style, {
+      minWidth: "112px",
+      marginTop: "2px",
+    });
+
+    figurePanel.append(reference, imageSurface, caption, continueButton);
+    readerMain.append(figurePanel);
+  }
+
+  function resumeAfterFigure() {
+    if (!figureActive) return;
+    dismissFigurePanel();
+    if (currentUnitIndex >= units.length - 1) {
+      pause();
+      return;
+    }
+    currentUnitIndex += 1;
+    renderCurrentUnit();
+    play();
+  }
+
+  function dismissFigurePanel() {
+    figureActive = false;
+    figurePanel?.remove();
+    figurePanel = null;
+    if (display) {
+      display.style.opacity = "1";
+      display.style.pointerEvents = "auto";
+    }
+    if (readerControls) {
+      readerControls.style.opacity = "1";
+      readerControls.style.pointerEvents = "auto";
+    }
+  }
+
+  function syncNextFigureIndex() {
+    const currentOffset = units[currentUnitIndex]?.start ?? 0;
+    nextFigureIndex = figures.findIndex((figure) => figure.referenceEnd > currentOffset);
+    if (nextFigureIndex < 0) nextFigureIndex = figures.length;
   }
 
   function beginBlinkBreak() {
@@ -677,6 +844,10 @@
   }
 
   function togglePlayPause() {
+    if (figureActive) {
+      resumeAfterFigure();
+      return;
+    }
     if (playing) {
       pause();
     } else {
@@ -686,16 +857,19 @@
 
   function goBackOneSentence() {
     if (units.length === 0) return;
+    dismissFigurePanel();
     blinkBreakActive = false;
     playbackSinceBlinkMs = 0;
     if (blinkIndicator) blinkIndicator.style.opacity = "0";
     currentUnitIndex = globalThis.RsvpCore.findPreviousSentenceStart(units, currentUnitIndex);
+    syncNextFigureIndex();
     renderCurrentUnit();
     if (playing) scheduleNext();
   }
 
   function jumpToHeading(headingIndex) {
     if (units.length === 0) return;
+    dismissFigurePanel();
     const transition = sectionTransitions.find((entry) => entry.headingIndex === headingIndex);
     const targetOffset = transition?.offset ?? 0;
     const targetIndex = units.findIndex((unit) => unit.end > targetOffset);
@@ -704,6 +878,7 @@
     playbackSinceBlinkMs = 0;
     if (blinkIndicator) blinkIndicator.style.opacity = "0";
     currentUnitIndex = targetIndex < 0 ? units.length - 1 : targetIndex;
+    syncNextFigureIndex();
     renderCurrentUnit();
     if (playing) scheduleNext();
   }
@@ -743,6 +918,8 @@
     document.getElementById(ROOT_ID)?.remove();
     root = null;
     display = null;
+    readerMain = null;
+    readerControls = null;
     blinkIndicator = null;
     playPauseButton = null;
     headingNodes = [];
@@ -750,6 +927,8 @@
     progressBar = null;
     playbackSinceBlinkMs = 0;
     blinkBreakActive = false;
+    figurePanel = null;
+    figureActive = false;
   }
 
   function close() {
@@ -763,5 +942,7 @@
     headings = [];
     sectionTransitions = [];
     initialHeadingIndex = -1;
+    figures = [];
+    nextFigureIndex = 0;
   }
 })();
