@@ -5,7 +5,6 @@ const {
   MAX_WORDS_PER_UNIT,
   MAX_GRAPHEMES_PER_UNIT,
   segmentText,
-  normalizeMorphologyTokens,
   splitStructuralSpans,
   findPreviousSentenceStart,
   findActiveHeadingIndex,
@@ -33,46 +32,26 @@ test("fallback segmentation keeps existing Japanese phrase behavior", () => {
   );
 });
 
-test("Kagome UniDic tokens drive phrase grouping", () => {
-  const source = "Redisを利用して排他制御を実現する場合";
+test("segmentText is deterministic regardless of legacy morphology input", () => {
+  const source = "これは非常に重要であり慎重に扱う必要があります";
   const tokens = [
-    { surface: "Redis", pos: "名詞,普通名詞,一般,*" },
-    { surface: "を", pos: "助詞,格助詞,*,*" },
-    { surface: "利用", pos: "名詞,普通名詞,サ変可能,*" },
-    { surface: "し", pos: "動詞,非自立可能,*,*" },
-    { surface: "て", pos: "助詞,接続助詞,*,*" },
-    { surface: "排他", pos: "名詞,普通名詞,一般,*" },
-    { surface: "制御", pos: "名詞,普通名詞,サ変可能,*" },
-    { surface: "を", pos: "助詞,格助詞,*,*" },
-    { surface: "実現", pos: "名詞,普通名詞,サ変可能,*" },
-    { surface: "する", pos: "動詞,非自立可能,*,*" },
-    { surface: "場合", pos: "名詞,普通名詞,副詞可能,*" },
+    { surface: "これ", pos: "代名詞" },
+    { surface: "は", pos: "助詞,係助詞" },
+    { surface: "非常", pos: "形状詞" },
+    { surface: "に", pos: "助動詞" },
+    { surface: "重要", pos: "形状詞" },
+    { surface: "で", pos: "助動詞" },
+    { surface: "あり", pos: "動詞" },
+    { surface: "慎重", pos: "形状詞" },
+    { surface: "に", pos: "助動詞" },
+    { surface: "扱う", pos: "動詞" },
+    { surface: "必要", pos: "名詞" },
+    { surface: "が", pos: "助詞,格助詞" },
+    { surface: "あり", pos: "動詞" },
+    { surface: "ます", pos: "助動詞" },
   ];
 
-  assert.deepEqual(
-    segmentText(source, "ja", tokens).map((unit) => unit.text),
-    ["Redisを利用して", "排他制御を", "実現する場合"],
-  );
-});
-
-test("morphology normalization preserves whitespace and offsets", () => {
-  const source = "Redis Cluster を使う";
-  const tokens = [
-    { surface: "Redis", pos: "名詞" },
-    { surface: "Cluster", pos: "名詞" },
-    { surface: "を", pos: "助詞,格助詞" },
-    { surface: "使う", pos: "動詞" },
-  ];
-  const normalized = normalizeMorphologyTokens(source, tokens);
-
-  assert.equal(normalized.map((token) => token.surface).join(""), source);
-  for (const token of normalized) assert.equal(source.slice(token.start, token.end), token.surface);
-});
-
-test("invalid morphology falls back without losing text", () => {
-  const source = "これはテストです。";
-  const units = segmentText(source, "ja", [{ surface: "存在しない", pos: "名詞" }]);
-  assert.equal(units.map((unit) => unit.text).join(""), source);
+  assert.deepEqual(segmentText(source, "ja", tokens), segmentText(source));
 });
 
 test("every RSVP unit is capped to avoid line wrapping", () => {

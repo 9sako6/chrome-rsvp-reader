@@ -56,17 +56,13 @@ test("service worker registers selection and whole-page entry points", async () 
     },
   };
   const source = fs.readFileSync(path.join(__dirname, "..", "service-worker.js"), "utf8");
+  assert.doesNotMatch(source, /KAGOME|Kagome|kagome|WebAssembly|wasm/);
 
   vm.runInNewContext(source, {
     chrome,
     console,
-    WebAssembly,
     setTimeout,
     clearTimeout,
-    kagome_ready: true,
-    kagome_tokenize() {
-      return [];
-    },
   });
 
   assert.equal(typeof listeners.installed, "function");
@@ -87,4 +83,5 @@ test("service worker registers selection and whole-page entry points", async () 
   assert.equal(messages[0].message.type, "PREPARE_RSVP");
   assert.equal(messages[0].message.readingContext.headings[0].text, "記事タイトル");
   assert.equal(messages[1].message.type, "START_RSVP");
+  assert.equal("morphologyTokens" in messages[1].message, false);
 });

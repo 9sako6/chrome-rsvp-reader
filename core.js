@@ -5,8 +5,6 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function createRsvpCore() {
   const MAX_WORDS_PER_UNIT = 7;
   const MAX_GRAPHEMES_PER_UNIT = 12;
-  const MORPH_TARGET_GRAPHEMES = 9;
-  const MORPH_MIN_STRONG_BOUNDARY = 4;
   const MIN_WORDS_BEFORE_BOUNDARY = 3;
   const SOFT_BOUNDARY_WORDS = new Set(["を","に","へ","と","から","まで","より","が","は","も","て","で","ので","のに","なら","れば","けど","けれど"]);
   const PHRASE_BOUNDARY_PUNCTUATION = new Set(["、","，",";","；",":","："]);
@@ -83,113 +81,6 @@
     return { units, sentenceIndex: currentSentenceIndex };
   }
 
-  function normalizeMorphologyTokens(text, rawTokens) {
-    if (!Array.isArray(rawTokens) || rawTokens.length === 0) return [];
-    const tokens = [];
-    let cursor = 0;
-    for (const rawToken of rawTokens) {
-      const surface = typeof rawToken?.surface === "string" ? rawToken.surface : "";
-      if (!surface) continue;
-      const start = text.indexOf(surface, cursor);
-      if (start < 0) return [];
-      if (start > cursor) tokens.push({ surface: text.slice(cursor, start), pos: [], start: cursor, end: start, gap: true });
-      const pos = Array.isArray(rawToken.pos) ? rawToken.pos : String(rawToken.pos || "").split(",").filter(Boolean);
-      const end = start + surface.length;
-      tokens.push({ surface, pos, start, end, gap: false });
-      cursor = end;
-    }
-    if (cursor < text.length) tokens.push({ surface: text.slice(cursor), pos: [], start: cursor, end: text.length, gap: true });
-    return tokens.map((token) => ({ ...token }));
-  }
-
-  function isStrongMorphBoundary(token) {
-    return Boolean(token && token.pos?.[0] === "助詞" && token.pos?.[1] === "接続助詞");
-  }
-
-  function isSafeMorphBoundary(token) {
-    if (!token || token.gap) return false;
-    return token.pos?.[0] === "助詞" || token.pos?.[0] === "助動詞";
-  }
-
-  function isVerbLike(token) {
-    return token?.pos?.[0] === "動詞" || token?.pos?.[0] === "形容詞";
-  }
-
-  function nextMeaningfulToken(tokens, index) {
-    for (let i = index + 1; i < tokens.length; i += 1) {
-      if (!tokens[i].gap || tokens[i].surface.trim()) return tokens[i];
-    }
-    return null;
-  }
-
-  function segmentMorphologicalSpan(sourceText, span, normalizedTokens, sentenceIndex, locale) {
-    const spanEnd = span.start + span.text.length;
-    const spanTokens = normalizedTokens.filter((token) => token.start >= span.start && token.end <= spanEnd);
-    if (spanTokens.length === 0 || spanTokens[0].start !== span.start || spanTokens[spanTokens.length - 1].end !== spanEnd) {
-      return segmentFlowSpan(span.text, sentenceIndex, span.start, locale, span.kind, span.kind === "body");
-    }
-
-    const units = [];
-    let currentSentenceIndex = sentenceIndex;
-    let buffer = [];
-    let safeBoundaryCount = 0;
-
-    function bufferText(count = buffer.length) {
-      if (count === 0) return "";
-      return sourceText.slice(buffer[0].start, buffer[count - 1].end);
-    }
-
-    function recalcSafeBoundary() {
-      safeBoundaryCount = 0;
-      buffer.forEach((token, index) => { if (isSafeMorphBoundary(token)) safeBoundaryCount = index + 1; });
-    }
-
-    function flush(count = buffer.length) {
-      if (count <= 0 || buffer.length === 0) return;
-      const first = buffer[0];
-      const last = buffer[count - 1];
-      units.push({
-        text: sourceText.slice(first.start, last.end),
-        sentenceIndex: currentSentenceIndex,
-        kind: span.kind,
-        start: first.start,
-        end: last.end,
-      });
-      buffer = buffer.slice(count);
-      recalcSafeBoundary();
-    }
-
-    for (let index = 0; index < spanTokens.length; index += 1) {
-      const token = spanTokens[index];
-      const next = nextMeaningfulToken(spanTokens, index);
-      buffer.push(token);
-
-      const sentenceBoundary = span.kind === "body" && SENTENCE_END_PUNCTUATION.has(token.surface);
-      const punctuationBoundary = PHRASE_BOUNDARY_PUNCTUATION.has(token.surface);
-      if (isSafeMorphBoundary(token)) safeBoundaryCount = buffer.length;
-
-      if (sentenceBoundary || punctuationBoundary) {
-        flush();
-        if (sentenceBoundary) currentSentenceIndex += 1;
-        continue;
-      }
-
-      const currentLength = graphemeCount(bufferText(), locale);
-      if (isStrongMorphBoundary(token) && currentLength >= MORPH_MIN_STRONG_BOUNDARY) {
-        flush();
-        continue;
-      }
-
-      const deferForFollowingConnector = isVerbLike(token) && isStrongMorphBoundary(next);
-      if (currentLength >= MORPH_TARGET_GRAPHEMES && safeBoundaryCount > 0 && safeBoundaryCount < buffer.length && !deferForFollowingConnector) {
-        flush(safeBoundaryCount);
-      }
-    }
-
-    flush();
-    return { units, sentenceIndex: currentSentenceIndex };
-  }
-
   function mergeDanglingPunctuation(units) {
     const merged = [];
     for (const unit of units) {
@@ -236,9 +127,8 @@
     return result;
   }
 
-  function segmentText(text, locale = "ja", morphologyTokens = globalThis.__rsvpMorphologyTokens ?? null) {
+  function segmentText(text, locale = "ja") {
     if (!text) return [];
-    const normalizedMorphology = normalizeMorphologyTokens(text, morphologyTokens);
     const units = [];
     let sentenceIndex = 0;
     for (const span of splitStructuralSpans(text)) {
@@ -246,9 +136,14 @@
         units.push({ text: span.text, sentenceIndex, kind: "quote", start: span.start, end: span.start + span.text.length });
         continue;
       }
-      const result = normalizedMorphology.length > 0
-        ? segmentMorphologicalSpan(text, span, normalizedMorphology, sentenceIndex, locale)
-        : segmentFlowSpan(span.text, sentenceIndex, span.start, locale, span.kind, span.kind === "body");
+      const result = segmentFlowSpan(
+        span.text,
+        sentenceIndex,
+        span.start,
+        locale,
+        span.kind,
+        span.kind === "body",
+      );
       units.push(...result.units);
       sentenceIndex = result.sentenceIndex;
     }
@@ -281,9 +176,7 @@
   return {
     MAX_WORDS_PER_UNIT,
     MAX_GRAPHEMES_PER_UNIT,
-    MORPH_TARGET_GRAPHEMES,
     segmentText,
-    normalizeMorphologyTokens,
     splitLongUnits,
     splitStructuralSpans,
     findPreviousSentenceStart,

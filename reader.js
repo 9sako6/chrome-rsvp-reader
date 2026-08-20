@@ -43,7 +43,7 @@
     }
 
     if (message?.type === "START_RSVP" && typeof message.text === "string") {
-      start(message.text, message.morphologyTokens, message.requestId);
+      start(message.text, message.requestId);
       return;
     }
 
@@ -61,7 +61,7 @@
     createLoadingOverlay();
   }
 
-  function start(text, morphologyTokens, requestId) {
+  function start(text, requestId) {
     if (requestId !== activeRequestId) return;
 
     stopTimer();
@@ -77,7 +77,7 @@
     nextFigureIndex = 0;
     playbackState = "paused";
 
-    units = globalThis.RsvpCore.segmentText(text, "ja", morphologyTokens);
+    units = globalThis.RsvpCore.segmentText(text, "ja");
     if (units.length === 0) {
       close();
       return;

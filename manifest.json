@@ -9,8 +9,5 @@
   },
   "background": {
     "service_worker": "service-worker.js"
-  },
-  "content_security_policy": {
-    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }
