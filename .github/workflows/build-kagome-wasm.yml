@@ -1,0 +1,54 @@
+name: Build Kagome UniDic WASM
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/kagome-wasm/go.mod
+      - tools/kagome-wasm/main.go
+      - .github/workflows/build-kagome-wasm.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+        with:
+          go-version: 1.24.0
+          cache: false
+
+      - name: Build UniDic WASM
+        working-directory: tools/kagome-wasm
+        run: |
+          set -euxo pipefail
+          go mod tidy
+          go mod verify
+          mkdir -p ../../vendor/kagome
+          GOOS=js GOARCH=wasm go build -trimpath -ldflags='-s -w' -o ../../vendor/kagome/kagome-unidic.wasm .
+          if [ -f "$(go env GOROOT)/lib/wasm/wasm_exec.js" ]; then
+            cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" ../../vendor/kagome/wasm_exec.js
+          else
+            cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" ../../vendor/kagome/wasm_exec.js
+          fi
+          cd ../../vendor/kagome
+          sha256sum kagome-unidic.wasm wasm_exec.js > SHA256SUMS
+
+      - name: Commit generated artifacts
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/kagome-wasm/go.sum vendor/kagome/
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m 'Build Kagome UniDic WASM'
+          git push
