@@ -18,6 +18,8 @@
   let playbackState = "idle";
   let timerId = null;
   let root = null;
+  let rootStyle = null;
+  let loadingLayer = null;
   let display = null;
   let playPauseButton = null;
   let headings = [];
@@ -60,7 +62,6 @@
     if (requestId !== activeRequestId) return;
 
     stopTimer();
-    removeOverlay();
 
     const readingContext = suppliedReadingContext || collectReadingContext(text);
     headings = readingContext.headings;
@@ -84,6 +85,11 @@
 
   function createLoadingOverlay() {
     root = createRoot();
+    loadingLayer = document.createElement("div");
+    Object.assign(loadingLayer.style, {
+      position: "absolute",
+      inset: "0",
+    });
 
     const status = document.createElement("div");
     Object.assign(status.style, {
@@ -100,10 +106,12 @@
       fontSize: "clamp(24px, 3vw, 36px)",
       fontWeight: "600",
     });
-    indicator.animate(
-      [{ opacity: 0.45 }, { opacity: 1 }, { opacity: 0.45 }],
-      { duration: 1400, iterations: Infinity },
-    );
+    if (!prefersReducedMotion()) {
+      indicator.animate(
+        [{ opacity: 0.45 }, { opacity: 1 }, { opacity: 0.45 }],
+        { duration: 1400, iterations: Infinity },
+      );
+    }
 
     const note = document.createElement("div");
     note.textContent = "このページ内だけで処理しています";
@@ -122,7 +130,8 @@
     });
 
     status.append(indicator, note);
-    root.append(status, closeButton);
+    loadingLayer.append(status, closeButton);
+    root.append(loadingLayer);
     document.documentElement.append(root);
   }
 
@@ -220,8 +229,10 @@
   }
 
   function createOverlay() {
-    root = createRoot();
-    document.documentElement.append(root);
+    if (!root) {
+      root = createRoot();
+      document.documentElement.append(root);
+    }
 
     const stage = document.createElement("div");
     Object.assign(stage.style, {
@@ -274,7 +285,7 @@
       wordBreak: "keep-all",
       transition: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
         ? "none"
-        : "color 120ms ease, background-color 120ms ease, opacity 240ms ease-out",
+        : "color 120ms ease, background-color 120ms ease",
     });
 
     const controls = document.createElement("div");
@@ -308,7 +319,7 @@
     controls.append(backButton, playPauseButton, closeButton);
     main.append(display, controls);
     stage.append(main);
-    root.append(stage);
+    revealReader(stage);
     document.addEventListener("keydown", handleKeyDown);
 
     if (typeof globalThis.ResizeObserver === "function") {
@@ -335,8 +346,24 @@
       #${ROOT_ID} nav::-webkit-scrollbar { display: none; }
       #${ROOT_ID} nav button:focus-visible { outline: 1px solid rgba(255,255,255,0.72); outline-offset: -2px; }
     `;
+    rootStyle = style;
     element.append(style);
     return element;
+  }
+
+  function revealReader(stage) {
+    if (!loadingLayer) {
+      root.append(stage);
+      return;
+    }
+
+    const outgoing = loadingLayer;
+    loadingLayer = null;
+    outgoing.style.pointerEvents = "none";
+    root.replaceChildren(rootStyle, stage, outgoing);
+    const outgoingAnimation = animateOpacity(outgoing, 1, 0, 220);
+    animateOpacity(stage, 0, 1, 220);
+    afterAnimation(outgoingAnimation, () => outgoing.remove());
   }
 
   function createMinimap() {
@@ -650,10 +677,10 @@
     playbackState = "figure";
     updatePlayPauseButton();
 
-    display.style.opacity = "0";
+    animateOpacity(display, 1, 0, 180);
     display.style.pointerEvents = "none";
     if (readerControls) {
-      readerControls.style.opacity = "0";
+      animateOpacity(readerControls, 1, 0, 180);
       readerControls.style.pointerEvents = "none";
     }
 
@@ -754,6 +781,7 @@
 
     figurePanel.append(reference, imageSurface, caption, continueButton);
     readerMain.append(figurePanel);
+    animateOpacity(figurePanel, 0, 1, 180);
   }
 
   function resumeAfterFigure() {
@@ -769,15 +797,19 @@
   }
 
   function dismissFigurePanel() {
+    const outgoing = figurePanel;
+    if (!outgoing) return;
     if (playbackState === "figure") playbackState = "paused";
-    figurePanel?.remove();
     figurePanel = null;
+    outgoing.style.pointerEvents = "none";
+    const outgoingAnimation = animateOpacity(outgoing, 1, 0, 180);
+    afterAnimation(outgoingAnimation, () => outgoing.remove());
     if (display) {
-      display.style.opacity = "1";
+      animateOpacity(display, 0, 1, 180);
       display.style.pointerEvents = "auto";
     }
     if (readerControls) {
-      readerControls.style.opacity = "1";
+      animateOpacity(readerControls, 0, 1, 180);
       readerControls.style.pointerEvents = "auto";
     }
   }
@@ -856,6 +888,30 @@
     return target?.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
   }
 
+  function prefersReducedMotion() {
+    return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
+  }
+
+  function animateOpacity(element, from, to, duration) {
+    element.style.opacity = String(to);
+    if (prefersReducedMotion()) return null;
+    return element.animate(
+      [{ opacity: from }, { opacity: to }],
+      {
+        duration,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+      },
+    );
+  }
+
+  function afterAnimation(animation, callback) {
+    if (!animation?.finished) {
+      callback();
+      return;
+    }
+    animation.finished.then(callback, callback);
+  }
+
   function stopTimer() {
     if (timerId !== null) {
       globalThis.clearTimeout(timerId);
@@ -869,6 +925,8 @@
     displayResizeObserver = null;
     document.getElementById(ROOT_ID)?.remove();
     root = null;
+    rootStyle = null;
+    loadingLayer = null;
     display = null;
     readerMain = null;
     readerControls = null;

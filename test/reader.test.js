@@ -42,7 +42,9 @@ class FakeElement {
   }
 
   animate(keyframes, options) {
-    this.animations.push({ keyframes, options });
+    const animation = { keyframes, options, finished: Promise.resolve() };
+    this.animations.push(animation);
+    return animation;
   }
 
   remove() {
@@ -150,6 +152,7 @@ test("reader shows the article outline beside the focal point", () => {
   };
   let nextTimerId = 1;
   const timers = new Map();
+  let reduceMotion = false;
   const context = {
     chrome: {
       runtime: {
@@ -165,7 +168,7 @@ test("reader shows the article outline beside the focal point", () => {
       return selection;
     },
     matchMedia() {
-      return { matches: false };
+      return { matches: reduceMotion };
     },
     getComputedStyle(element) {
       const assignedFontSize = Number.parseFloat(element.style.fontSize);
@@ -228,6 +231,9 @@ test("reader shows the article outline beside the focal point", () => {
   );
 
   assert.equal(stage.style.gridTemplateColumns, "280px minmax(0, 1fr)");
+  assert.deepEqual(Array.from(stage.animations[0].keyframes, ({ opacity }) => opacity), [0, 1]);
+  assert.equal(stage.animations[0].options.duration, 220);
+  assert.equal(stage.animations[0].options.easing, "cubic-bezier(0.22, 1, 0.36, 1)");
   assert.equal(stage.style.columnGap, "32px");
   assert.equal(stage.children[0], minimap);
   assert.equal(minimap.style.position, "relative");
@@ -337,6 +343,26 @@ test("reader shows the article outline beside the focal point", () => {
   assert.equal(pagePlayPauseButton.textContent, "再生");
   assert.equal(pageOutline.children[1].attributes["aria-current"], "location");
   assert.match(pageDisplay.textContent, /次の節/);
+
+  reduceMotion = true;
+  messageListener({ type: "SHOW_RSVP_LOADING", requestId: "reduced-motion-request" });
+  const reducedLoadingOverlay = document.getElementById("__rsvp-reader-root");
+  const reducedIndicator = findElement(
+    reducedLoadingOverlay,
+    (element) => element.textContent === "文章を準備しています…",
+  );
+  assert.equal(reducedIndicator.animations.length, 0);
+  messageListener({
+    type: "START_RSVP",
+    text,
+    requestId: "reduced-motion-request",
+    readingContext: pageReadingContext,
+  });
+  const reducedStage = findElement(
+    document.getElementById("__rsvp-reader-root"),
+    (element) => element.style.display === "grid",
+  );
+  assert.equal(reducedStage.animations.length, 0);
 });
 
 test("reader varies linguistic timing while preserving baseline effective WPM", () => {
@@ -478,7 +504,7 @@ test("reader varies linguistic timing while preserving baseline effective WPM", 
   assert.ok(equivalentWordsPerMinute >= 380 && equivalentWordsPerMinute <= 395);
 });
 
-test("reader pauses for a referenced figure and resumes with Space", () => {
+test("reader crossfades to a referenced figure and resumes with Space", async () => {
   const documentElement = new FakeElement("html");
   const documentListeners = new Map();
   const document = {
@@ -590,6 +616,10 @@ test("reader pauses for a referenced figure and resumes with Space", () => {
     figurePanel,
     (element) => element.attributes["data-rsvp-image-surface"] === "true",
   );
+  const display = findElement(
+    overlay,
+    (element) => element.style.whiteSpace === "nowrap" && element.style.justifyContent === "center",
+  );
   const continueButton = findElement(figurePanel, (element) => element.textContent === "続きを読む");
   assert.equal(image.src, "https://example.com/chart.png");
   assert.equal(image.alt, "処理時間の比較グラフ");
@@ -597,6 +627,9 @@ test("reader pauses for a referenced figure and resumes with Space", () => {
   assert.ok(findElement(figurePanel, (element) => element.textContent === "図1 処理時間"));
   assert.ok(continueButton);
   assert.equal(timers.size, 0);
+  assert.deepEqual(Array.from(figurePanel.animations[0].keyframes, ({ opacity }) => opacity), [0, 1]);
+  assert.equal(figurePanel.animations[0].options.duration, 180);
+  assert.deepEqual(Array.from(display.animations.at(-1).keyframes, ({ opacity }) => opacity), [1, 0]);
   assert.equal(veil.style.opacity, "1");
   imageSurface.dispatchEvent({ type: "pointerdown" });
   assert.equal(veil.style.opacity, "0");
@@ -609,11 +642,9 @@ test("reader pauses for a referenced figure and resumes with Space", () => {
     target: documentElement,
     preventDefault() {},
   });
+  await Promise.resolve();
   assert.equal(findElement(overlay, (element) => element.attributes["aria-label"] === "参照図表"), null);
-  const display = findElement(
-    overlay,
-    (element) => element.style.whiteSpace === "nowrap" && element.style.justifyContent === "center",
-  );
   assert.match(display.textContent, /次の説明/);
+  assert.deepEqual(Array.from(display.animations.at(-1).keyframes, ({ opacity }) => opacity), [0, 1]);
   assert.ok(timers.size > 0);
 });
