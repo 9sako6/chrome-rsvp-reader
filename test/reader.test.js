@@ -16,6 +16,7 @@ class FakeElement {
     this.clientWidth = 500;
     this.scrollWidth = 800;
     this.listeners = new Map();
+    this.animations = [];
   }
 
   append(...children) {
@@ -40,7 +41,9 @@ class FakeElement {
     for (const listener of this.listeners.get(event.type) || []) listener(event);
   }
 
-  animate() {}
+  animate(keyframes, options) {
+    this.animations.push({ keyframes, options });
+  }
 
   remove() {
     if (!this.parent) return;
@@ -71,6 +74,9 @@ test("reader shows the article outline beside the focal point", () => {
   const document = {
     documentElement,
     createElement(tagName) {
+      return new FakeElement(tagName);
+    },
+    createElementNS(_namespace, tagName) {
       return new FakeElement(tagName);
     },
     getElementById(id) {
@@ -278,7 +284,7 @@ test("reader shows the article outline beside the focal point", () => {
   assert.match(pageDisplay.textContent, /次の節/);
 });
 
-test("reader waits for a sentence boundary before inserting a text-only fade break", () => {
+test("reader shows a subtle blinking eye at a lower-frequency sentence break", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
   assert.doesNotMatch(source, /まばたき/);
 
@@ -286,6 +292,9 @@ test("reader waits for a sentence boundary before inserting a text-only fade bre
   const document = {
     documentElement,
     createElement(tagName) {
+      return new FakeElement(tagName);
+    },
+    createElementNS(_namespace, tagName) {
       return new FakeElement(tagName);
     },
     getElementById(id) {
@@ -336,7 +345,7 @@ test("reader waits for a sentence boundary before inserting a text-only fade bre
   context.globalThis = context;
   vm.runInNewContext(source, context);
 
-  const longSentence = Array.from({ length: 40 }, (_, index) => `word${index}`).join(" ");
+  const longSentence = Array.from({ length: 90 }, (_, index) => `word${index}`).join(" ");
   const text = `${longSentence}。次の文です。`;
   messageListener({ type: "PREPARE_RSVP", text, requestId: "blink-request" });
   messageListener({ type: "START_RSVP", text, morphologyTokens: null, requestId: "blink-request" });
@@ -346,7 +355,15 @@ test("reader waits for a sentence boundary before inserting a text-only fade bre
     overlay,
     (element) => element.style.whiteSpace === "nowrap" && element.style.justifyContent === "center",
   );
-  for (let index = 0; index < 25; index += 1) {
+  const blinkIndicator = findElement(
+    overlay,
+    (element) => element.attributes["data-rsvp-blink-indicator"] === "true",
+  );
+  assert.ok(blinkIndicator);
+  assert.equal(blinkIndicator.tagName, "SVG");
+  assert.equal(blinkIndicator.style.opacity, "0");
+
+  for (let index = 0; index < 67; index += 1) {
     const [timerId, timer] = [...timers.entries()][0];
     timers.delete(timerId);
     timer.callback();
@@ -363,9 +380,12 @@ test("reader waits for a sentence boundary before inserting a text-only fade bre
 
   assert.ok(sentenceBoundarySteps > 0);
   assert.equal(display.style.opacity, "0.12");
+  assert.equal(blinkIndicator.style.opacity, "0.56");
+  assert.equal(blinkIndicator.animations.at(-1).options.duration, 900);
   assert.notEqual(display.textContent, "");
   const blinkTimer = [...timers.values()][0];
-  assert.equal(blinkTimer.delay, 850);
+  assert.equal(blinkTimer.delay, 1200);
   blinkTimer.callback();
   assert.equal(display.style.opacity, "1");
+  assert.equal(blinkIndicator.style.opacity, "0");
 });

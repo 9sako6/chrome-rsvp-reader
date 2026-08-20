@@ -3,8 +3,8 @@
   globalThis.__rsvpReaderInstalled = true;
 
   const INTERVAL_MS = 300;
-  const BLINK_INTERVAL_MS = 7500;
-  const BLINK_BREAK_MS = 850;
+  const BLINK_INTERVAL_MS = 20000;
+  const BLINK_BREAK_MS = 1200;
   const BLINK_FADE_OPACITY = "0.12";
   const ROOT_ID = "__rsvp-reader-root";
   const DISPLAY_FONT_SIZE = "clamp(36px, 4.5vw, 64px)";
@@ -26,6 +26,7 @@
   let progressLabel = null;
   let progressBar = null;
   let displayResizeObserver = null;
+  let blinkIndicator = null;
   let playbackSinceBlinkMs = 0;
   let blinkBreakActive = false;
 
@@ -274,6 +275,8 @@
         : "color 120ms ease, background-color 120ms ease, opacity 240ms ease-out",
     });
 
+    blinkIndicator = createBlinkIndicator();
+
     const controls = document.createElement("div");
     Object.assign(controls.style, {
       position: "absolute",
@@ -302,7 +305,7 @@
     playPauseButton.setAttribute("aria-keyshortcuts", "Space");
 
     controls.append(backButton, playPauseButton, closeButton);
-    main.append(display, controls);
+    main.append(display, blinkIndicator, controls);
     stage.append(main);
     root.append(stage);
     document.addEventListener("keydown", handleKeyDown);
@@ -333,6 +336,43 @@
     `;
     element.append(style);
     return element;
+  }
+
+  function createBlinkIndicator() {
+    const namespace = "http://www.w3.org/2000/svg";
+    const icon = document.createElementNS(namespace, "svg");
+    icon.setAttribute("viewBox", "0 0 44 28");
+    icon.setAttribute("aria-hidden", "true");
+    icon.setAttribute("data-rsvp-blink-indicator", "true");
+    Object.assign(icon.style, {
+      position: "absolute",
+      left: "50%",
+      top: "calc(50% + 62px)",
+      transform: "translate(-50%, -50%) scaleY(1)",
+      transformOrigin: "center",
+      width: "34px",
+      height: "22px",
+      color: "rgba(255,255,255,0.72)",
+      opacity: "0",
+      pointerEvents: "none",
+      transition: globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+        ? "none"
+        : "opacity 220ms ease-out",
+    });
+
+    const outline = document.createElementNS(namespace, "path");
+    outline.setAttribute("d", "M2 14C7.5 6.2 14.3 2.5 22 2.5S36.5 6.2 42 14c-5.5 7.8-12.3 11.5-20 11.5S7.5 21.8 2 14Z");
+    outline.setAttribute("fill", "none");
+    outline.setAttribute("stroke", "currentColor");
+    outline.setAttribute("stroke-width", "1.8");
+
+    const pupil = document.createElementNS(namespace, "circle");
+    pupil.setAttribute("cx", "22");
+    pupil.setAttribute("cy", "14");
+    pupil.setAttribute("r", "4.2");
+    pupil.setAttribute("fill", "currentColor");
+    icon.append(outline, pupil);
+    return icon;
   }
 
   function createMinimap() {
@@ -589,13 +629,25 @@
   }
 
   function beginBlinkBreak() {
-    if (!display || !playing) return;
+    if (!display || !blinkIndicator || !playing) return;
     playbackSinceBlinkMs = 0;
     blinkBreakActive = true;
     display.style.opacity = BLINK_FADE_OPACITY;
+    blinkIndicator.style.opacity = "0.56";
+    if (!globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      blinkIndicator.animate(
+        [
+          { transform: "translate(-50%, -50%) scaleY(1)" },
+          { transform: "translate(-50%, -50%) scaleY(0.08)", offset: 0.46 },
+          { transform: "translate(-50%, -50%) scaleY(1)" },
+        ],
+        { duration: 900, easing: "cubic-bezier(0.4, 0, 0.2, 1)" },
+      );
+    }
     timerId = globalThis.setTimeout(() => {
       if (!playing) return;
       blinkBreakActive = false;
+      blinkIndicator.style.opacity = "0";
       currentUnitIndex += 1;
       renderCurrentUnit();
       scheduleNext();
@@ -614,6 +666,7 @@
     stopTimer();
     if (blinkBreakActive) {
       blinkBreakActive = false;
+      if (blinkIndicator) blinkIndicator.style.opacity = "0";
       renderCurrentUnit();
     }
     updatePlayPauseButton();
@@ -631,6 +684,7 @@
     if (units.length === 0) return;
     blinkBreakActive = false;
     playbackSinceBlinkMs = 0;
+    if (blinkIndicator) blinkIndicator.style.opacity = "0";
     currentUnitIndex = globalThis.RsvpCore.findPreviousSentenceStart(units, currentUnitIndex);
     renderCurrentUnit();
     if (playing) scheduleNext();
@@ -644,6 +698,7 @@
     stopTimer();
     blinkBreakActive = false;
     playbackSinceBlinkMs = 0;
+    if (blinkIndicator) blinkIndicator.style.opacity = "0";
     currentUnitIndex = targetIndex < 0 ? units.length - 1 : targetIndex;
     renderCurrentUnit();
     if (playing) scheduleNext();
@@ -684,6 +739,7 @@
     document.getElementById(ROOT_ID)?.remove();
     root = null;
     display = null;
+    blinkIndicator = null;
     playPauseButton = null;
     headingNodes = [];
     progressLabel = null;
