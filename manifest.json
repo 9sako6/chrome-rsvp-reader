@@ -4,6 +4,9 @@
   "version": "0.2.0",
   "description": "Read selected Japanese text with a fixed-gaze RSVP overlay.",
   "permissions": ["contextMenus", "activeTab", "scripting"],
+  "action": {
+    "default_title": "ページ全体をRSVPで読む"
+  },
   "background": {
     "service_worker": "service-worker.js"
   },
