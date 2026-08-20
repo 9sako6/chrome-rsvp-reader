@@ -7,7 +7,9 @@
 
   root.RsvpCore = api;
 })(typeof globalThis !== "undefined" ? globalThis : this, function createRsvpCore() {
-  function segmentText(text, locale = "ja") {
+  const DEFAULT_WORDS_PER_UNIT = 3;
+
+  function segmentText(text, locale = "ja", wordsPerUnit = DEFAULT_WORDS_PER_UNIT) {
     if (!text) return [];
 
     const sentenceSegmenter = new Intl.Segmenter(locale, {
@@ -16,6 +18,10 @@
     const wordSegmenter = new Intl.Segmenter(locale, {
       granularity: "word",
     });
+    const maxWords = Math.max(
+      1,
+      Number.isInteger(wordsPerUnit) ? wordsPerUnit : DEFAULT_WORDS_PER_UNIT,
+    );
 
     const units = [];
     let sentenceIndex = 0;
@@ -23,16 +29,27 @@
     for (const sentencePart of sentenceSegmenter.segment(text)) {
       const sentence = sentencePart.segment;
       const sentenceUnits = [];
+      let unitText = "";
+      let wordLikeCount = 0;
 
       for (const wordPart of wordSegmenter.segment(sentence)) {
         const segment = wordPart.segment;
         if (!segment) continue;
 
-        if (wordPart.isWordLike || sentenceUnits.length === 0) {
-          sentenceUnits.push(segment);
-        } else {
-          sentenceUnits[sentenceUnits.length - 1] += segment;
+        if (wordPart.isWordLike && wordLikeCount >= maxWords) {
+          sentenceUnits.push(unitText);
+          unitText = "";
+          wordLikeCount = 0;
         }
+
+        unitText += segment;
+        if (wordPart.isWordLike) {
+          wordLikeCount += 1;
+        }
+      }
+
+      if (unitText) {
+        sentenceUnits.push(unitText);
       }
 
       for (const unitText of sentenceUnits) {
@@ -64,6 +81,7 @@
   }
 
   return {
+    DEFAULT_WORDS_PER_UNIT,
     segmentText,
     findPreviousSentenceStart,
   };

@@ -1,7 +1,11 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { segmentText, findPreviousSentenceStart } = require("../core.js");
+const {
+  DEFAULT_WORDS_PER_UNIT,
+  segmentText,
+  findPreviousSentenceStart,
+} = require("../core.js");
 
 test("segmentText preserves the selected source text", () => {
   const source = "Redisを使う。ただし、失敗時は再試行する。";
@@ -11,6 +15,14 @@ test("segmentText preserves the selected source text", () => {
   assert.equal(
     units.map((unit) => unit.text).join(""),
     source,
+  );
+});
+
+test("segmentText groups multiple word-like segments into one unit", () => {
+  assert.equal(DEFAULT_WORDS_PER_UNIT, 3);
+  assert.deepEqual(
+    segmentText("alpha beta gamma delta", "en").map((unit) => unit.text),
+    ["alpha beta gamma ", "delta"],
   );
 });
 

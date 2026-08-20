@@ -2,7 +2,7 @@
   if (globalThis.__rsvpReaderInstalled) return;
   globalThis.__rsvpReaderInstalled = true;
 
-  const INTERVAL_MS = 350;
+  const INTERVAL_MS = 300;
   const ROOT_ID = "__rsvp-reader-root";
 
   let units = [];
