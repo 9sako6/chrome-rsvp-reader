@@ -204,17 +204,33 @@
 
   function splitLongUnits(units, locale = "ja", maxGraphemes = MAX_GRAPHEMES_PER_UNIT) {
     const limit = Math.max(1, Number.isInteger(maxGraphemes) ? maxGraphemes : MAX_GRAPHEMES_PER_UNIT);
-    const segmenter = new Intl.Segmenter(locale, { granularity: "grapheme" });
+    const graphemeSegmenter = new Intl.Segmenter(locale, { granularity: "grapheme" });
+    const wordSegmenter = new Intl.Segmenter(locale, { granularity: "word" });
     const result = [];
     for (const unit of units) {
-      const graphemes = [...segmenter.segment(unit.text)];
+      const graphemes = [...graphemeSegmenter.segment(unit.text)];
       if (graphemes.length <= limit) { result.push({ ...unit }); continue; }
-      for (let index = 0; index < graphemes.length; index += limit) {
-        const first = graphemes[index];
-        const last = graphemes[Math.min(index + limit, graphemes.length) - 1];
-        const startInUnit = first.index;
-        const endInUnit = last.index + last.segment.length;
-        result.push({ ...unit, text: unit.text.slice(startInUnit, endInUnit), start: unit.start + startInUnit, end: unit.start + endInUnit });
+
+      let partStart = 0;
+      let partEnd = 0;
+      let partHasWord = false;
+      for (const piece of wordSegmenter.segment(unit.text)) {
+        const pieceEnd = piece.index + piece.segment.length;
+        const candidate = unit.text.slice(partStart, pieceEnd);
+        const exceedsLimit = graphemeCount(candidate, locale) > limit;
+
+        if (piece.isWordLike && partHasWord && exceedsLimit) {
+          result.push({ ...unit, text: unit.text.slice(partStart, partEnd), start: unit.start + partStart, end: unit.start + partEnd });
+          partStart = piece.index;
+          partHasWord = false;
+        }
+
+        partEnd = pieceEnd;
+        if (piece.isWordLike) partHasWord = true;
+      }
+
+      if (partStart < partEnd) {
+        result.push({ ...unit, text: unit.text.slice(partStart, partEnd), start: unit.start + partStart, end: unit.start + partEnd });
       }
     }
     return result;
@@ -257,6 +273,11 @@
     return activeIndex;
   }
 
+  function calculateReadingProgress(currentEnd, sourceLength) {
+    if (!Number.isFinite(currentEnd) || !Number.isFinite(sourceLength) || sourceLength <= 0) return 0;
+    return Math.min(100, Math.max(0, Math.round((currentEnd / sourceLength) * 100)));
+  }
+
   return {
     MAX_WORDS_PER_UNIT,
     MAX_GRAPHEMES_PER_UNIT,
@@ -267,5 +288,6 @@
     splitStructuralSpans,
     findPreviousSentenceStart,
     findActiveHeadingIndex,
+    calculateReadingProgress,
   };
 });

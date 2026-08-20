@@ -9,6 +9,7 @@ const {
   splitStructuralSpans,
   findPreviousSentenceStart,
   findActiveHeadingIndex,
+  calculateReadingProgress,
 } = require("../core.js");
 
 function graphemeCount(text, locale = "ja") {
@@ -83,6 +84,17 @@ test("every RSVP unit is capped to avoid line wrapping", () => {
   assert.equal(units.map((unit) => unit.text).join(""), source);
 });
 
+test("long units split at word boundaries without breaking katakana words", () => {
+  assert.deepEqual(
+    segmentText("ソフトウェアエンジニアリング").map((unit) => unit.text),
+    ["ソフトウェア", "エンジニアリング"],
+  );
+  assert.deepEqual(
+    segmentText("ソフトウェア開発ライフサイクル").map((unit) => unit.text),
+    ["ソフトウェア開発", "ライフサイクル"],
+  );
+});
+
 test("long Japanese corner-bracket quotes are split without losing quote styling", () => {
   const source = "「これはとても長い引用なので一度では表示せず注視点を固定したまま分割する」";
   const units = segmentText(source);
@@ -130,6 +142,14 @@ test("findActiveHeadingIndex follows section transitions", () => {
   assert.equal(findActiveHeadingIndex(transitions, 5, 1), 1);
   assert.equal(findActiveHeadingIndex(transitions, 10, 1), 2);
   assert.equal(findActiveHeadingIndex(transitions, 42, 1), 3);
+});
+
+test("calculateReadingProgress clamps selection offsets to a percentage", () => {
+  assert.equal(calculateReadingProgress(0, 100), 0);
+  assert.equal(calculateReadingProgress(42, 100), 42);
+  assert.equal(calculateReadingProgress(120, 100), 100);
+  assert.equal(calculateReadingProgress(-10, 100), 0);
+  assert.equal(calculateReadingProgress(10, 0), 0);
 });
 
 test("empty text produces no units", () => {
