@@ -286,11 +286,17 @@
     const backButton = createButton("1文戻る", goBackOneSentence);
     playPauseButton = createButton("一時停止", togglePlayPause);
     const closeButton = createButton("閉じる", close);
+    Object.assign(backButton.style, { width: "92px", flex: "0 0 92px" });
+    Object.assign(playPauseButton.style, { width: "92px", flex: "0 0 92px" });
+    Object.assign(closeButton.style, { width: "72px", flex: "0 0 72px" });
+    backButton.setAttribute("aria-keyshortcuts", "ArrowLeft");
+    playPauseButton.setAttribute("aria-keyshortcuts", "Space");
 
     controls.append(backButton, playPauseButton, closeButton);
     main.append(display, controls);
     stage.append(main);
     root.append(stage);
+    document.addEventListener("keydown", handleKeyDown);
 
     if (typeof globalThis.ResizeObserver === "function") {
       displayResizeObserver = new globalThis.ResizeObserver(fitDisplayText);
@@ -584,6 +590,22 @@
     playPauseButton.textContent = playing ? "一時停止" : "再生";
   }
 
+  function handleKeyDown(event) {
+    if (!display || event.repeat || isEditableTarget(event.target)) return;
+    if (event.code === "Space" || event.key === " ") {
+      event.preventDefault();
+      togglePlayPause();
+    } else if (event.code === "ArrowLeft" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      goBackOneSentence();
+    }
+  }
+
+  function isEditableTarget(target) {
+    const tagName = target?.tagName?.toLowerCase();
+    return target?.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select";
+  }
+
   function stopTimer() {
     if (timerId !== null) {
       globalThis.clearTimeout(timerId);
@@ -592,6 +614,7 @@
   }
 
   function removeOverlay() {
+    document.removeEventListener("keydown", handleKeyDown);
     displayResizeObserver?.disconnect();
     displayResizeObserver = null;
     document.getElementById(ROOT_ID)?.remove();

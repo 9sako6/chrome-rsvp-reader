@@ -15,6 +15,7 @@ class FakeElement {
     this.parent = null;
     this.clientWidth = 500;
     this.scrollWidth = 800;
+    this.listeners = new Map();
   }
 
   append(...children) {
@@ -28,7 +29,16 @@ class FakeElement {
     this.attributes[name] = value;
   }
 
-  addEventListener() {}
+  addEventListener(type, listener) {
+    const listeners = this.listeners.get(type) || [];
+    listeners.push(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  dispatchEvent(event) {
+    event.target ||= this;
+    for (const listener of this.listeners.get(event.type) || []) listener(event);
+  }
 
   animate() {}
 
@@ -57,6 +67,7 @@ test("reader shows the article outline beside the focal point", () => {
   const headingBeforeSelection = new FakeElement("h1", "記事タイトル");
   const headingInSelection = new FakeElement("h2", "次の節");
   const documentElement = new FakeElement("html");
+  const documentListeners = new Map();
   const document = {
     documentElement,
     createElement(tagName) {
@@ -67,6 +78,20 @@ test("reader shows the article outline beside the focal point", () => {
     },
     querySelectorAll() {
       return [headingBeforeSelection, headingInSelection];
+    },
+    addEventListener(type, listener) {
+      const listeners = documentListeners.get(type) || [];
+      listeners.push(listener);
+      documentListeners.set(type, listeners);
+    },
+    removeEventListener(type, listener) {
+      documentListeners.set(
+        type,
+        (documentListeners.get(type) || []).filter((candidate) => candidate !== listener),
+      );
+    },
+    dispatchEvent(event) {
+      for (const listener of documentListeners.get(event.type) || []) listener(event);
     },
   };
   let messageListener = null;
@@ -95,6 +120,8 @@ test("reader shows the article outline beside the focal point", () => {
       };
     },
   };
+  let nextTimerId = 1;
+  const timers = new Map();
   const context = {
     chrome: {
       runtime: {
@@ -118,10 +145,15 @@ test("reader shows the article outline beside the focal point", () => {
     RsvpCore,
     Intl,
     console,
-    setTimeout() {
-      return 1;
+    setTimeout(callback, delay) {
+      const id = nextTimerId;
+      nextTimerId += 1;
+      timers.set(id, { callback, delay });
+      return id;
     },
-    clearTimeout() {},
+    clearTimeout(id) {
+      timers.delete(id);
+    },
   };
   context.globalThis = context;
   const source = fs.readFileSync(path.join(__dirname, "..", "reader.js"), "utf8");
@@ -159,6 +191,42 @@ test("reader shows the article outline beside the focal point", () => {
   assert.ok(activeMarker);
   assert.equal(activeMarker.style.boxShadow, "none");
   assert.equal(display.style.fontSize, "38.4px");
+
+  const playPauseButton = findElement(overlay, (element) => element.textContent === "一時停止");
+  const backButton = findElement(overlay, (element) => element.textContent === "1文戻る");
+  assert.equal(playPauseButton.style.width, "92px");
+  assert.equal(backButton.style.width, "92px");
+
+  let prevented = false;
+  document.dispatchEvent({
+    type: "keydown",
+    code: "Space",
+    target: documentElement,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  assert.equal(prevented, true);
+  assert.equal(playPauseButton.textContent, "再生");
+  assert.equal(playPauseButton.style.width, "92px");
+
+  document.dispatchEvent({
+    type: "keydown",
+    code: "Space",
+    target: documentElement,
+    preventDefault() {},
+  });
+  const firstTimer = [...timers.values()][0];
+  timers.clear();
+  firstTimer.callback();
+  assert.match(display.textContent, /次の節/);
+  document.dispatchEvent({
+    type: "keydown",
+    code: "ArrowLeft",
+    target: documentElement,
+    preventDefault() {},
+  });
+  assert.match(display.textContent, /最初の節/);
 
   selection.isCollapsed = true;
   const pageReadingContext = {
